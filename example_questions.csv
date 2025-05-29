@@ -1,0 +1,5 @@
+question,field_name,data_type
+"Who is the author?",author,str
+"What is the publication date?",pub_date,date
+"How many pages does it have?",page_count,int
+"What is the main topic?",topic,str

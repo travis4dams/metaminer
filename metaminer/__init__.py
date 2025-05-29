@@ -1,0 +1,17 @@
+from .inquiry import Inquiry
+from .extractor import extract_metadata
+from .document_reader import extract_text, extract_text_from_directory, get_supported_extensions
+from .question_parser import parse_questions_from_file
+from .schema_builder import build_schema_from_questions
+
+__version__ = "0.2.0"
+
+__all__ = [
+    "Inquiry",
+    "extract_metadata",
+    "extract_text",
+    "extract_text_from_directory",
+    "get_supported_extensions",
+    "parse_questions_from_file",
+    "build_schema_from_questions",
+]

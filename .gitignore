@@ -1,0 +1,4 @@
+/.pytest_cache
+/build
+/metaminer.egg-info
+/myenv
