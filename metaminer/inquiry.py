@@ -68,6 +68,51 @@ class Inquiry(object):
         except Exception:
             return "gpt-3.5-turbo"  # fallback
     
+    def _call_openai_api(self, prompt: str) -> BaseModel:
+        """
+        Call OpenAI API with structured output, falling back to JSON mode if needed.
+        
+        Args:
+            prompt: The prompt to send to the API
+            
+        Returns:
+            BaseModel: Validated Pydantic model instance
+            
+        Raises:
+            ValueError: If JSON parsing fails
+            RuntimeError: If API call fails
+        """
+        model_name = self._get_available_model()
+        
+        try:
+            # Try using structured output first (newer API)
+            try:
+                response = self.client.beta.chat.completions.parse(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format=self.schema_class
+                )
+                return response.choices[0].message.parsed
+            except (AttributeError, Exception) as e:
+                # Fallback to legacy JSON mode if structured output not available
+                response = self.client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                
+                # Parse JSON response
+                result_text = response.choices[0].message.content
+                result_dict = json.loads(result_text)
+                
+                # Validate using schema
+                return validate_extraction_result(result_dict, self.schema_class)
+                
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse JSON response: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to call OpenAI API: {e}")
+    
     def process_document(self, document_path: str) -> Dict[str, Any]:
         """
         Process a single document and extract information.
@@ -87,23 +132,9 @@ class Inquiry(object):
         # Create extraction prompt
         prompt = create_extraction_prompt(self.questions, document_text, self.schema_class)
         
-        # Get model name
-        model_name = self._get_available_model()
-        
-        # Call OpenAI API
+        # Call OpenAI API with structured output
         try:
-            response = self.client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            
-            # Parse JSON response
-            result_text = response.choices[0].message.content
-            result_dict = json.loads(result_text)
-            
-            # Validate using schema
-            validated_result = validate_extraction_result(result_dict, self.schema_class)
+            validated_result = self._call_openai_api(prompt)
             
             # Convert to dict and add metadata
             final_result = schema_to_dict(validated_result)
@@ -112,8 +143,6 @@ class Inquiry(object):
             
             return final_result
             
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse JSON response: {e}")
         except Exception as e:
             raise RuntimeError(f"Failed to process document {document_path}: {e}")
     
@@ -168,20 +197,8 @@ class Inquiry(object):
                 # Create extraction prompt
                 prompt = create_extraction_prompt(self.questions, doc_text, self.schema_class)
                 
-                # Get model name
-                model_name = self._get_available_model()
-                
-                # Call OpenAI API
-                response = self.client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
-                )
-                
-                # Parse and validate result
-                result_text = response.choices[0].message.content
-                result_dict = json.loads(result_text)
-                validated_result = validate_extraction_result(result_dict, self.schema_class)
+                # Call OpenAI API with structured output
+                validated_result = self._call_openai_api(prompt)
                 
                 # Convert to dict and add metadata
                 final_result = schema_to_dict(validated_result)

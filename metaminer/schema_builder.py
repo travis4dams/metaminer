@@ -124,6 +124,15 @@ def validate_extraction_result(result: Dict[str, Any],
     Raises:
         ValueError: If validation fails
     """
+    # Check if result is the expected type
+    if not isinstance(result, dict):
+        result_type = type(result).__name__
+        raise ValueError(
+            f"Expected dictionary for extraction result, got {result_type}. "
+            f"This usually indicates the API returned an unexpected format. "
+            f"Result: {result}"
+        )
+    
     try:
         return schema_class(**result)
     except Exception as e:

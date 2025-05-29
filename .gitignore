@@ -1,4 +1,5 @@
-/.pytest_cache
-/build
-/metaminer.egg-info
-/myenv
+.pytest_cache
+build
+metaminer.egg-info
+myenv
+metaminer/__pycache__
