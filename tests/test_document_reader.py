@@ -18,7 +18,7 @@ from metaminer.document_reader import (
 class TestExtractTextFromPDF:
     """Test suite for PDF text extraction."""
     
-    @patch('fitz')
+    @patch('metaminer.document_reader.fitz')
     def test_extract_text_from_pdf_success(self, mock_fitz):
         """Test successful PDF text extraction."""
         # Mock PyMuPDF
@@ -34,13 +34,13 @@ class TestExtractTextFromPDF:
         mock_fitz.open.assert_called_once_with("test.pdf")
         mock_doc.close.assert_called_once()
     
-    @patch('fitz', side_effect=ImportError())
-    def test_extract_text_from_pdf_no_pymupdf(self, mock_fitz):
+    @patch('metaminer.document_reader.fitz', None)
+    def test_extract_text_from_pdf_no_pymupdf(self):
         """Test PDF extraction when PyMuPDF is not installed."""
         with pytest.raises(RuntimeError, match="PyMuPDF is not installed"):
             extract_text_from_pdf("test.pdf")
     
-    @patch('fitz')
+    @patch('metaminer.document_reader.fitz')
     def test_extract_text_from_pdf_error(self, mock_fitz):
         """Test PDF extraction error handling."""
         mock_fitz.open.side_effect = Exception("PDF read error")
