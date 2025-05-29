@@ -51,9 +51,18 @@ def test_dict_validation_success():
 
 def test_inquiry_creation():
     """Test basic Inquiry functionality."""
+    from metaminer.config import Config
+    from unittest.mock import MagicMock
+    
+    # Create test config with API key
+    config = Config()
+    config.api_key = "test-key"
+    
+    # Mock OpenAI client
+    mock_client = MagicMock()
     
     # Test with simple questions
-    inquiry = Inquiry(questions=["What is the title?", "Who is the author?"])
+    inquiry = Inquiry(questions=["What is the title?", "Who is the author?"], client=mock_client, config=config)
     assert len(inquiry.questions) == 2
     assert inquiry.schema_class is not None
     
@@ -66,6 +75,15 @@ def test_inquiry_creation():
 
 def test_inquiry_from_dict():
     """Test Inquiry creation from dictionary format."""
+    from metaminer.config import Config
+    from unittest.mock import MagicMock
+    
+    # Create test config with API key
+    config = Config()
+    config.api_key = "test-key"
+    
+    # Mock OpenAI client
+    mock_client = MagicMock()
     
     questions = {
         "title": {
@@ -78,7 +96,7 @@ def test_inquiry_from_dict():
         }
     }
     
-    inquiry = Inquiry(questions=questions)
+    inquiry = Inquiry(questions=questions, client=mock_client, config=config)
     assert len(inquiry.questions) == 2
     assert inquiry.schema_class is not None
     assert "title" in inquiry.questions

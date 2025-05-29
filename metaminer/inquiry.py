@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Union, Type, Optional
 import openai
 import pandas as pd
 import json
+import time
+import logging
 from pathlib import Path
 
 from .document_reader import extract_text, extract_text_from_directory
@@ -13,11 +15,13 @@ from .schema_builder import (
     validate_extraction_result,
     schema_to_dict
 )
+from .config import Config, setup_logging, validate_file_path, validate_questions as validate_questions_config
 
 class Inquiry(object):
     def __init__(self, questions: Union[str, list, dict, None] = None, 
                  client: openai.OpenAI = None, 
-                 base_url: str = "http://localhost:5001/api/v1",
+                 base_url: str = None,
+                 config: Config = None,
                  **kwargs):
         """
         Initialize Inquiry with questions and OpenAI client.
@@ -25,10 +29,46 @@ class Inquiry(object):
         Args:
             questions: Questions in various formats (str, list, dict)
             client: OpenAI client instance
-            base_url: Base URL for OpenAI API
+            base_url: Base URL for OpenAI API (deprecated, use config)
+            config: Configuration instance
         """
+        # Initialize configuration
+        self.config = config or Config()
+        self.config.validate()
+        
+        # Set up logging
+        self.logger = setup_logging(self.config)
+        
+        # Normalize and validate questions
         self.questions = self.normalize_questions(questions or {})
-        self.client = client or openai.OpenAI(base_url=base_url)
+        if self.questions:
+            validate_questions_config(self.questions)
+            self.logger.info(f"Loaded {len(self.questions)} questions")
+        
+        # Initialize OpenAI client
+        if client:
+            self.client = client
+        else:
+            # Use base_url if provided (for backward compatibility)
+            api_base_url = base_url or self.config.base_url
+            
+            client_kwargs = {
+                "base_url": api_base_url,
+                "timeout": self.config.timeout,
+                "max_retries": self.config.max_retries
+            }
+            
+            # Add API key if available
+            if self.config.api_key:
+                client_kwargs["api_key"] = self.config.api_key
+            
+            try:
+                self.client = openai.OpenAI(**client_kwargs)
+                self.logger.info(f"Initialized OpenAI client with base URL: {api_base_url}")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize OpenAI client: {e}")
+                raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
+        
         self.schema_class = None
         self._build_schema()
     
@@ -71,6 +111,7 @@ class Inquiry(object):
     def _call_openai_api(self, prompt: str) -> BaseModel:
         """
         Call OpenAI API with structured output, falling back to JSON mode if needed.
+        Includes retry logic and proper error handling.
         
         Args:
             prompt: The prompt to send to the API
@@ -80,38 +121,69 @@ class Inquiry(object):
             
         Raises:
             ValueError: If JSON parsing fails
-            RuntimeError: If API call fails
+            RuntimeError: If API call fails after retries
         """
         model_name = self._get_available_model()
+        last_exception = None
         
-        try:
-            # Try using structured output first (newer API)
+        for attempt in range(self.config.max_retries + 1):
             try:
-                response = self.client.beta.chat.completions.parse(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format=self.schema_class
-                )
-                return response.choices[0].message.parsed
-            except (AttributeError, Exception) as e:
-                # Fallback to legacy JSON mode if structured output not available
-                response = self.client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
-                )
+                self.logger.debug(f"API call attempt {attempt + 1}/{self.config.max_retries + 1}")
                 
-                # Parse JSON response
-                result_text = response.choices[0].message.content
-                result_dict = json.loads(result_text)
-                
-                # Validate using schema
-                return validate_extraction_result(result_dict, self.schema_class)
-                
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse JSON response: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to call OpenAI API: {e}")
+                # Try using structured output first (newer API)
+                try:
+                    response = self.client.beta.chat.completions.parse(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format=self.schema_class
+                    )
+                    result = response.choices[0].message.parsed
+                    self.logger.debug("Successfully used structured output API")
+                    return result
+                    
+                except (AttributeError, Exception) as e:
+                    self.logger.debug(f"Structured output failed, falling back to JSON mode: {e}")
+                    # Fallback to legacy JSON mode if structured output not available
+                    response = self.client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"}
+                    )
+                    
+                    # Parse JSON response
+                    result_text = response.choices[0].message.content
+                    if not result_text:
+                        raise ValueError("Empty response from API")
+                    
+                    try:
+                        result_dict = json.loads(result_text)
+                    except json.JSONDecodeError as json_e:
+                        self.logger.error(f"Failed to parse JSON response: {result_text}")
+                        raise ValueError(f"Failed to parse JSON response: {json_e}")
+                    
+                    # Validate using schema
+                    result = validate_extraction_result(result_dict, self.schema_class)
+                    self.logger.debug("Successfully used JSON mode API")
+                    return result
+                    
+            except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError) as e:
+                last_exception = e
+                if attempt < self.config.max_retries:
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    self.logger.warning(f"API call failed (attempt {attempt + 1}), retrying in {wait_time}s: {e}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    self.logger.error(f"API call failed after {self.config.max_retries + 1} attempts: {e}")
+                    break
+                    
+            except Exception as e:
+                # For other exceptions, don't retry
+                self.logger.error(f"API call failed with non-retryable error: {e}")
+                raise RuntimeError(f"Failed to call OpenAI API: {e}")
+        
+        # If we get here, all retries failed
+        raise RuntimeError(f"Failed to call OpenAI API after {self.config.max_retries + 1} attempts. Last error: {last_exception}")
     
     def process_document(self, document_path: str) -> Dict[str, Any]:
         """
@@ -122,18 +194,35 @@ class Inquiry(object):
             
         Returns:
             Dict[str, Any]: Extracted information
+            
+        Raises:
+            ValueError: If no questions defined or invalid file
+            RuntimeError: If processing fails
         """
         if not self.questions:
             raise ValueError("No questions defined")
         
-        # Extract text from document
-        document_text = extract_text(document_path)
+        self.logger.info(f"Processing document: {document_path}")
         
-        # Create extraction prompt
-        prompt = create_extraction_prompt(self.questions, document_text, self.schema_class)
-        
-        # Call OpenAI API with structured output
         try:
+            # Validate file path and format
+            validate_file_path(document_path, self.config)
+            
+            # Extract text from document
+            self.logger.debug(f"Extracting text from: {document_path}")
+            document_text = extract_text(document_path)
+            
+            if not document_text.strip():
+                self.logger.warning(f"No text extracted from document: {document_path}")
+                raise ValueError(f"No text could be extracted from document: {document_path}")
+            
+            self.logger.debug(f"Extracted {len(document_text)} characters from document")
+            
+            # Create extraction prompt
+            prompt = create_extraction_prompt(self.questions, document_text, self.schema_class)
+            
+            # Call OpenAI API with structured output
+            self.logger.debug("Calling OpenAI API for extraction")
             validated_result = self._call_openai_api(prompt)
             
             # Convert to dict and add metadata
@@ -141,9 +230,11 @@ class Inquiry(object):
             final_result['_document_path'] = document_path
             final_result['_document_name'] = Path(document_path).name
             
+            self.logger.info(f"Successfully processed document: {document_path}")
             return final_result
             
         except Exception as e:
+            self.logger.error(f"Failed to process document {document_path}: {e}")
             raise RuntimeError(f"Failed to process document {document_path}: {e}")
     
     def process_documents(self, documents: Union[str, List[str]]) -> pd.DataFrame:
