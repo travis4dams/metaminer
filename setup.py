@@ -15,6 +15,7 @@ setup(
         'pandas>=1.3.0',
         'pydantic>=2.0.0',
         'pypandoc>=1.5',
+        'PyMuPDF>=1.20.0',
     ],
     extras_require={
         'dev': [

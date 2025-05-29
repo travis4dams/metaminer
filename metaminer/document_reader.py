@@ -1,5 +1,5 @@
 """
-Document reader module for extracting text from various document formats using pandoc.
+Document reader module for extracting text from various document formats using pandoc and PyMuPDF.
 """
 import os
 import pypandoc
@@ -7,9 +7,40 @@ from typing import List, Union
 from pathlib import Path
 
 
+def extract_text_from_pdf(file_path: str) -> str:
+    """
+    Extract text from PDF files using PyMuPDF.
+    
+    Args:
+        file_path: Path to the PDF file
+        
+    Returns:
+        str: Extracted text content
+        
+    Raises:
+        RuntimeError: If PyMuPDF is not installed or extraction fails
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        raise RuntimeError(
+            "PyMuPDF is not installed. Please install it: pip install PyMuPDF"
+        )
+    
+    try:
+        doc = fitz.open(file_path)
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract text from PDF {file_path}: {e}")
+
+
 def extract_text(file_path: str) -> str:
     """
-    Extract text from various document formats using pandoc.
+    Extract text from various document formats using appropriate extractors.
     
     Args:
         file_path: Path to the document file
@@ -19,13 +50,17 @@ def extract_text(file_path: str) -> str:
         
     Raises:
         FileNotFoundError: If the file doesn't exist
-        RuntimeError: If pandoc is not installed or conversion fails
+        RuntimeError: If extraction fails
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
+    # Route PDF files to PyMuPDF extractor
+    if file_path.lower().endswith('.pdf'):
+        return extract_text_from_pdf(file_path)
+    
     try:
-        # Let pandoc auto-detect format and convert to plain text
+        # Use pandoc for other document formats
         return pypandoc.convert_file(file_path, 'plain')
     except OSError as e:
         if "pandoc" in str(e).lower():
