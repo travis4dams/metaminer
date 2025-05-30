@@ -7,7 +7,7 @@ name = "metaminer"
 version = "0.3.1"
 description = "Extract structured information from documents using AI"
 readme = "README.md"
-license = {file = "LICENSE"}
+license-files = ["LICENSE"]
 authors = [
     {name = "Travis Adams", email = "tadams792@gmail.com"}
 ]
