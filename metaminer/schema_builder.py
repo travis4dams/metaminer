@@ -1,7 +1,11 @@
 """
 Schema builder module for creating dynamic Pydantic models from questions.
 """
-from typing import Dict, Any, Type, Optional, Annotated
+from typing import Dict, Any, Type, Optional
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
 from pydantic import BaseModel, Field, field_validator, create_model, BeforeValidator
 from dateutil import parser as date_parser
 from datetime import date, datetime
