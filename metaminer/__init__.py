@@ -5,7 +5,7 @@ from .question_parser import parse_questions_from_file
 from .schema_builder import build_schema_from_questions
 from .config import Config, setup_logging
 
-__version__ = "0.3.2"
+__version__ = "0.3.2rc"
 
 __all__ = [
     "Inquiry",
