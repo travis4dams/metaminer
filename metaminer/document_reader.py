@@ -6,10 +6,7 @@ import pypandoc
 from typing import List, Union
 from pathlib import Path
 
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    fitz = None
+import pymupdf  # PyMuPDF
 
 
 def extract_text_from_pdf(file_path: str) -> str:
@@ -25,13 +22,13 @@ def extract_text_from_pdf(file_path: str) -> str:
     Raises:
         RuntimeError: If PyMuPDF is not installed or extraction fails
     """
-    if fitz is None:
+    if pymupdf is None:
         raise RuntimeError(
             "PyMuPDF is not installed. Please install it: pip install PyMuPDF"
         )
     
     try:
-        doc = fitz.open(file_path)
+        doc = pymupdf.open(file_path)
         text = ""
         for page in doc:
             text += page.get_text()

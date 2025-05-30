@@ -18,32 +18,32 @@ from metaminer.document_reader import (
 class TestExtractTextFromPDF:
     """Test suite for PDF text extraction."""
     
-    @patch('metaminer.document_reader.fitz')
-    def test_extract_text_from_pdf_success(self, mock_fitz):
+    @patch('metaminer.document_reader.pymupdf')
+    def test_extract_text_from_pdf_success(self, mock_pymupdf):
         """Test successful PDF text extraction."""
         # Mock PyMuPDF
         mock_doc = MagicMock()
         mock_page = MagicMock()
         mock_page.get_text.return_value = "Sample PDF text content"
         mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-        mock_fitz.open.return_value = mock_doc
+        mock_pymupdf.open.return_value = mock_doc
         
         result = extract_text_from_pdf("test.pdf")
         
         assert result == "Sample PDF text content"
-        mock_fitz.open.assert_called_once_with("test.pdf")
+        mock_pymupdf.open.assert_called_once_with("test.pdf")
         mock_doc.close.assert_called_once()
     
-    @patch('metaminer.document_reader.fitz', None)
+    @patch('metaminer.document_reader.pymupdf', None)
     def test_extract_text_from_pdf_no_pymupdf(self):
         """Test PDF extraction when PyMuPDF is not installed."""
         with pytest.raises(RuntimeError, match="PyMuPDF is not installed"):
             extract_text_from_pdf("test.pdf")
     
-    @patch('metaminer.document_reader.fitz')
-    def test_extract_text_from_pdf_error(self, mock_fitz):
+    @patch('metaminer.document_reader.pymupdf')
+    def test_extract_text_from_pdf_error(self, mock_pymupdf):
         """Test PDF extraction error handling."""
-        mock_fitz.open.side_effect = Exception("PDF read error")
+        mock_pymupdf.open.side_effect = Exception("PDF read error")
         
         with pytest.raises(RuntimeError, match="Failed to extract text from PDF"):
             extract_text_from_pdf("test.pdf")

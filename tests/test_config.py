@@ -314,9 +314,16 @@ class TestConfigIntegration:
             # Should work with valid file
             validate_file_path(tmp_path, config)
             
-            # Test with modified config
+            # Test with modified config - create a larger file for this test
             config.MAX_FILE_SIZE_MB = 0.001
-            with pytest.raises(ValueError, match="File too large"):
-                validate_file_path(tmp_path, config)
+            with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as tmp2:
+                tmp2.write(b"x" * 2000)  # 2KB file
+                tmp2_path = tmp2.name
+            
+            try:
+                with pytest.raises(ValueError, match="File too large"):
+                    validate_file_path(tmp2_path, config)
+            finally:
+                os.unlink(tmp2_path)
         finally:
             os.unlink(tmp_path)

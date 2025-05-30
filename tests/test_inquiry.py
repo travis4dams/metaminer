@@ -242,8 +242,9 @@ class TestInquiryAPIHandling:
         """Test API failure after all retries exhausted."""
         mock_client = MagicMock()
         
-        # Mock persistent failure
+        # Mock persistent failure for both APIs
         mock_client.chat.completions.create.side_effect = Exception("Persistent API error")
+        mock_client.beta.chat.completions.parse.side_effect = Exception("Persistent API error")
         
         # Mock models list
         mock_model = MagicMock()

@@ -269,21 +269,21 @@ def test_question_file_formats(file_extension, expected_format):
 
 
 # Skip tests if example files are not available
-@pytest.mark.skipif(not os.path.exists('example_questions.csv'), 
+@pytest.mark.skipif(not os.path.exists('tests/example_questions.csv'), 
                    reason="example_questions.csv not found")
 def test_csv_file_specific():
     """Test CSV-specific functionality."""
-    questions = parse_questions_from_file('example_questions.csv')
+    questions = parse_questions_from_file('tests/example_questions.csv')
     # Verify CSV-specific features
     for value in questions.values():
         assert 'type' in value
         assert value['type'] in ['str', 'int', 'float', 'bool', 'date']
 
 
-@pytest.mark.skipif(not os.path.exists('example_document.txt'), 
+@pytest.mark.skipif(not os.path.exists('tests/example_document.txt'), 
                    reason="example_document.txt not found")
 def test_document_file_specific():
     """Test document-specific functionality."""
-    text = extract_text('example_document.txt')
+    text = extract_text('tests/example_document.txt')
     assert len(text) > 50  # Assuming document has substantial content
     assert isinstance(text, str)

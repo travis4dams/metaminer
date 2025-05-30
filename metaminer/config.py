@@ -31,6 +31,9 @@ class Config:
         self.timeout = self._get_timeout()
         self.max_retries = self._get_max_retries()
         self.log_level = self._get_log_level()
+        # Make these instance attributes so they can be modified in tests
+        self.MAX_FILE_SIZE_MB = self.MAX_FILE_SIZE_MB
+        self.SUPPORTED_EXTENSIONS = self.SUPPORTED_EXTENSIONS
         
     def _get_api_key(self) -> Optional[str]:
         """Get API key from environment or return None."""
