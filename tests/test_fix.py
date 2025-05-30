@@ -126,3 +126,69 @@ def test_schema_building():
     assert instance.title == "Test Title"
     assert instance.page_count == 100
     assert instance.is_published is True
+
+
+def test_flexible_date_parsing_original_issue():
+    """Test that the original issue with date parsing is resolved."""
+    from datetime import date
+    
+    # This test demonstrates the original issue is fixed:
+    # Date fields can now handle human-readable formats like "October 20, 2015"
+    questions = {
+        "pub_date": {
+            "question": "What is the publication date?",
+            "type": "date",
+            "output_name": "pub_date"
+        }
+    }
+    
+    schema_class = build_schema_from_questions(questions)
+    
+    # This would previously fail with "Input should be a valid date or datetime"
+    # Now it should work with flexible parsing
+    result_data = {"pub_date": "October 20, 2015"}
+    result = validate_extraction_result(result_data, schema_class)
+    
+    assert result.pub_date == date(2015, 10, 20)
+    assert isinstance(result.pub_date, date)
+
+
+def test_datetime_vs_date_distinction():
+    """Test that datetime and date types are properly distinguished."""
+    from datetime import date, datetime
+    
+    questions = {
+        "pub_date": {
+            "question": "What is the publication date?",
+            "type": "date",
+            "output_name": "pub_date"
+        },
+        "created_at": {
+            "question": "When was it created?",
+            "type": "datetime",
+            "output_name": "created_at"
+        }
+    }
+    
+    schema_class = build_schema_from_questions(questions)
+    
+    # Test that both types work with the same input format
+    result_data = {
+        "pub_date": "October 20, 2015 3:30 PM",
+        "created_at": "October 20, 2015 3:30 PM"
+    }
+    
+    result = validate_extraction_result(result_data, schema_class)
+    
+    # Date field should strip time information
+    assert result.pub_date == date(2015, 10, 20)
+    assert isinstance(result.pub_date, date)
+    assert not isinstance(result.pub_date, datetime)
+    
+    # Datetime field should preserve time information
+    assert isinstance(result.created_at, datetime)
+    assert result.created_at.year == 2015
+    assert result.created_at.month == 10
+    assert result.created_at.day == 20
+    assert result.created_at.hour == 15
+    assert result.created_at.minute == 30

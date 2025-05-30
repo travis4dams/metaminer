@@ -1,15 +1,81 @@
 """
 Schema builder module for creating dynamic Pydantic models from questions.
 """
-from typing import Dict, Any, Type, Optional
-from pydantic import BaseModel, Field, create_model
+from typing import Dict, Any, Type, Optional, Annotated
+from pydantic import BaseModel, Field, field_validator, create_model, BeforeValidator
+from dateutil import parser as date_parser
 from datetime import date, datetime
+
+
+def create_date_validator(field_name: str, target_type: type):
+    """Create a field validator for flexible date/datetime parsing.
+    
+    Args:
+        field_name: Name of the field being validated
+        target_type: Either date or datetime class to determine output type
+    """
+    def validator(cls, v):
+        if v is None or isinstance(v, target_type):
+            return v
+            
+        if isinstance(v, (date, datetime)):
+            if target_type == date and isinstance(v, datetime):
+                return v.date()
+            elif target_type == datetime and isinstance(v, date):
+                return datetime.combine(v, datetime.min.time())
+            return v
+            
+        if isinstance(v, str):
+            try:
+                parsed = date_parser.parse(v)
+                return parsed.date() if target_type == date else parsed
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Could not parse {target_type.__name__} '{v}' for field {field_name}: {e}")
+        
+        raise ValueError(f"Invalid {target_type.__name__} format for field {field_name}: {v}")
+    
+    return field_validator(field_name, mode='before')(validator)
+
+
+def _create_date_validator(field_name: str):
+    """Create a date validator function."""
+    def validate_date(v):
+        if v is None:
+            return v
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, str):
+            try:
+                parsed = date_parser.parse(v)
+                return parsed.date()
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Could not parse date '{v}' for field {field_name}: {e}")
+        raise ValueError(f"Invalid date format for field {field_name}: {v}")
+    return validate_date
+
+
+def _create_datetime_validator(field_name: str):
+    """Create a datetime validator function."""
+    def validate_datetime(v):
+        if v is None or isinstance(v, datetime):
+            return v
+        if isinstance(v, date):
+            return datetime.combine(v, datetime.min.time())
+        if isinstance(v, str):
+            try:
+                return date_parser.parse(v)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Could not parse datetime '{v}' for field {field_name}: {e}")
+        raise ValueError(f"Invalid datetime format for field {field_name}: {v}")
+    return validate_datetime
 
 
 def build_schema_from_questions(questions: Dict[str, Dict[str, Any]], 
                                schema_name: str = "DocumentSchema") -> Type[BaseModel]:
     """
-    Build a dynamic Pydantic model from questions dictionary.
+    Build a dynamic Pydantic model from questions dictionary with flexible date parsing.
     
     Args:
         questions: Dictionary of questions with type information
@@ -21,15 +87,25 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
     fields = {}
     
     for field_name, question_data in questions.items():
-        field_type = _get_python_type(question_data.get("type", "str"))
+        field_type_str = question_data.get("type", "str")
         field_description = question_data.get("question", "")
         output_name = question_data.get("output_name", field_name)
         
-        # Create field with description
-        fields[output_name] = (
-            field_type, 
-            Field(description=field_description)
-        )
+        if field_type_str == "date":
+            # Create annotated type with validator
+            date_validator = _create_date_validator(output_name)
+            annotated_type = Annotated[Optional[date], BeforeValidator(date_validator)]
+            fields[output_name] = (annotated_type, Field(description=field_description))
+            
+        elif field_type_str == "datetime":
+            # Create annotated type with validator
+            datetime_validator = _create_datetime_validator(output_name)
+            annotated_type = Annotated[Optional[datetime], BeforeValidator(datetime_validator)]
+            fields[output_name] = (annotated_type, Field(description=field_description))
+            
+        else:
+            field_type = _get_python_type(field_type_str)
+            fields[output_name] = (Optional[field_type], Field(description=field_description))
     
     # Create the dynamic model
     return create_model(schema_name, **fields)
