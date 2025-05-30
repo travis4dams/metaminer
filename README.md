@@ -1,5 +1,9 @@
 # Metaminer
 
+[![Tests](https://github.com/travis4dams/metaminer/workflows/Tests/badge.svg)](https://github.com/travis4dams/metaminer/actions)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPL%20v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
+
 A tool for extracting structured information from documents using AI.
 
 ## Overview
