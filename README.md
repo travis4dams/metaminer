@@ -227,7 +227,7 @@ metaminer/
 
 ## License
 
-MIT License - see LICENSE file for details.
+GNU Lesser General Public License v3.0 - see LICENSE file for details.
 
 ## Contributing
 
