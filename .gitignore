@@ -1,7 +1,11 @@
 .pytest_cache/
 build/
+dist/
 metaminer.egg-info/
 myenv/
 metaminer/__pycache__/
 tests/__pycache__/
 tests/__pycache__/test_inquiry.cpython-312-pytest-8.3.5.pyc
+
+# Prevent accidental recreation of setup.py
+setup.py

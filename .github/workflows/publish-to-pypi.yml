@@ -68,24 +68,24 @@ jobs:
     
     - name: Verify version consistency
       run: |
-        # Extract version from setup.py
-        SETUP_VERSION=$(python setup.py --version)
+        # Extract version from pyproject.toml using grep and sed
+        PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
         # Extract version from __init__.py
         INIT_VERSION=$(python -c "import metaminer; print(metaminer.__version__)")
         
-        echo "Setup.py version: $SETUP_VERSION"
+        echo "pyproject.toml version: $PYPROJECT_VERSION"
         echo "__init__.py version: $INIT_VERSION"
         
-        if [ "$SETUP_VERSION" != "$INIT_VERSION" ]; then
-          echo "Version mismatch between setup.py and __init__.py"
+        if [ "$PYPROJECT_VERSION" != "$INIT_VERSION" ]; then
+          echo "Version mismatch between pyproject.toml and __init__.py"
           exit 1
         fi
         
         # If triggered by tag, verify tag matches version
         if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          if [ "$SETUP_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match package version ($SETUP_VERSION)"
+          if [ "$PYPROJECT_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match package version ($PYPROJECT_VERSION)"
             exit 1
           fi
         fi

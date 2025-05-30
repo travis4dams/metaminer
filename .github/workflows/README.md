@@ -7,7 +7,7 @@ The `publish-to-pypi.yml` workflow automates the process of testing, building, a
 ### Features
 
 - **Multi-Python Testing**: Tests the package on Python 3.8-3.12
-- **Version Validation**: Ensures version consistency between `setup.py` and `__init__.py`
+- **Version Validation**: Ensures version consistency between `pyproject.toml` and `__init__.py`
 - **Secure Publishing**: Uses OpenID Connect (OIDC) trusted publishing (no API tokens needed)
 - **Test PyPI Support**: Allows testing releases on Test PyPI before production
 - **Automatic Releases**: Creates GitHub releases with build artifacts
@@ -62,7 +62,7 @@ The `publish-to-pypi.yml` workflow automates the process of testing, building, a
 1. **Update version numbers:**
    ```bash
    # Update both files to the same version
-   # setup.py: version='0.3.1'
+   # pyproject.toml: version = "0.3.1"
    # metaminer/__init__.py: __version__ = "0.3.1"
    ```
 
@@ -115,7 +115,7 @@ The `publish-to-pypi.yml` workflow automates the process of testing, building, a
 #### Common Issues
 
 **Version Mismatch Error:**
-- Ensure `setup.py` and `metaminer/__init__.py` have the same version
+- Ensure `pyproject.toml` and `metaminer/__init__.py` have the same version
 - Check that the git tag matches the package version (without 'v' prefix)
 
 **Trusted Publishing Failed:**
