@@ -95,13 +95,16 @@ def setup_logging(config: Config) -> logging.Logger:
     """
     logger = logging.getLogger("metaminer")
     
-    # Don't add handlers if they already exist
-    if logger.handlers:
-        return logger
-    
-    # Set log level
+    # Set log level (always update it)
     log_level = getattr(logging, config.log_level.upper())
     logger.setLevel(log_level)
+    
+    # Don't add handlers if they already exist
+    if logger.handlers:
+        # Update existing handler levels
+        for handler in logger.handlers:
+            handler.setLevel(log_level)
+        return logger
     
     # Create console handler
     console_handler = logging.StreamHandler()
