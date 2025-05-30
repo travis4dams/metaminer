@@ -20,6 +20,8 @@ Metaminer requires [pandoc](https://pandoc.org/installing.html) to be installed 
 - **macOS**: `brew install pandoc`
 - **Windows**: Download from [pandoc.org](https://pandoc.org/installing.html)
 
+**Note**: Metaminer uses pandoc for most document formats and PyMuPDF specifically for PDF processing to ensure optimal text extraction.
+
 ## Usage
 
 ### Command Line Interface
@@ -44,7 +46,8 @@ metaminer questions.txt documents/ --base-url http://localhost:8000/api/v1
 ### Python Module
 
 ```python
-from metaminer import Inquiry
+from metaminer import Inquiry, extract_metadata, Config
+from metaminer import extract_text, get_supported_extensions
 import pandas as pd
 
 # From question file
@@ -57,6 +60,16 @@ df = inquiry.process_documents(["doc1.pdf", "doc2.docx"])
 
 # Single document
 result = inquiry.process_document("document.pdf")
+
+# Extract text directly
+text = extract_text("document.pdf")
+
+# Get supported file extensions
+extensions = get_supported_extensions()
+
+# Use configuration
+config = Config()
+print(f"Default API endpoint: {config.base_url}")
 ```
 
 ## Question Formats
@@ -87,7 +100,7 @@ Supported data types:
 
 ## Supported Document Formats
 
-Thanks to pandoc integration, metaminer supports:
+Thanks to pandoc integration and PyMuPDF, metaminer supports:
 - PDF (.pdf)
 - Microsoft Word (.docx, .doc)
 - OpenDocument (.odt)
@@ -102,20 +115,51 @@ Thanks to pandoc integration, metaminer supports:
 
 ### API Settings
 
-By default, metaminer connects to a local AI server at `http://localhost:5001/api/v1`. You can customize this:
+By default, metaminer connects to a local AI server at `http://localhost:5001/api/v1`. You can customize this using environment variables or command-line options:
+
+#### Environment Variables
 
 ```bash
-# Command line
-metaminer questions.txt documents/ --base-url http://your-api-server.com/api/v1
-
-# Environment variable
+# API Configuration
 export OPENAI_API_KEY=your-api-key
+export METAMINER_BASE_URL=http://your-api-server.com/api/v1
+export METAMINER_MODEL=gpt-4
+export METAMINER_TIMEOUT=60
+export METAMINER_MAX_RETRIES=5
+
+# Logging Configuration
+export METAMINER_LOG_LEVEL=DEBUG
 ```
+
+#### Command Line
+
+```bash
+metaminer questions.txt documents/ --base-url http://your-api-server.com/api/v1
+```
+
+#### Python
 
 ```python
-# Python
+from metaminer import Inquiry, Config
+
+# Using configuration
+config = Config()
 inquiry = Inquiry.from_file("questions.txt", base_url="http://your-api-server.com/api/v1")
+
+# Or set environment variables before creating Inquiry
+import os
+os.environ["METAMINER_BASE_URL"] = "http://your-api-server.com/api/v1"
+inquiry = Inquiry.from_file("questions.txt")
 ```
+
+### Configuration Defaults
+
+- **Base URL**: `http://localhost:5001/api/v1`
+- **Model**: `gpt-3.5-turbo`
+- **Timeout**: 30 seconds
+- **Max Retries**: 3
+- **Log Level**: INFO
+- **Max File Size**: 50MB
 
 ## Output Format
 
@@ -175,6 +219,8 @@ metaminer/
 ├── document_reader.py   # Document text extraction
 ├── question_parser.py   # Question file parsing
 ├── schema_builder.py    # Pydantic schema generation
+├── extractor.py         # Metadata extraction utilities
+├── config.py           # Configuration management
 ├── cli.py              # Command-line interface
 └── __main__.py         # Module entry point
 ```
