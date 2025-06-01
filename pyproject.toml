@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "metaminer"
-version = "0.3.3rc"
+version = "0.3.3"
 description = "Extract structured information from documents using AI"
 readme = "README.md"
 license = {file = "LICENSE"}
