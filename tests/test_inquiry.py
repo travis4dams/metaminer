@@ -108,13 +108,20 @@ class TestInquiryInitialization:
         assert inquiry.questions["author"]["question"] == "Who is the author?"
         assert inquiry.questions["title"]["question"] == "What is the title?"
     
-    def test_inquiry_without_api_key_raises_error(self):
-        """Test that Inquiry raises error when no API key is provided."""
+    def test_inquiry_without_api_key_uses_dummy_key(self, mock_openai_client):
+        """Test that Inquiry uses dummy key when no API key is provided."""
         config = Config()
         config.api_key = None  # No API key
         
-        with pytest.raises(RuntimeError, match="Failed to initialize OpenAI client"):
-            Inquiry(questions="Test question?", config=config)
+        # Should succeed with dummy key for local APIs
+        inquiry = Inquiry(
+            questions="Test question?", 
+            client=mock_openai_client,
+            config=config
+        )
+        
+        assert len(inquiry.questions) == 1
+        assert "default" in inquiry.questions
     
     def test_inquiry_with_invalid_questions_raises_error(self, test_config):
         """Test that Inquiry raises error with invalid questions."""

@@ -58,9 +58,9 @@ class Inquiry(object):
                 "max_retries": self.config.max_retries
             }
             
-            # Add API key if available
-            if self.config.api_key:
-                client_kwargs["api_key"] = self.config.api_key
+            # Add API key - use dummy key for local APIs if none provided
+            api_key = self.config.api_key or "dummy-key-for-local-api"
+            client_kwargs["api_key"] = api_key
             
             try:
                 self.client = openai.OpenAI(**client_kwargs)
