@@ -6,7 +6,7 @@ from .schema_builder import build_schema_from_questions
 from .config import Config, setup_logging
 from .datatype_inferrer import DataTypeInferrer, TypeSuggestion, infer_question_types
 
-__version__ = "0.3.2"
+__version__ = "0.3.3rc"
 
 __all__ = [
     "Inquiry",
