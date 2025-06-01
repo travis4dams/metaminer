@@ -16,12 +16,14 @@ from .schema_builder import (
     schema_to_dict
 )
 from .config import Config, setup_logging, validate_file_path, validate_questions as validate_questions_config
+from .datatype_inferrer import DataTypeInferrer
 
 class Inquiry(object):
     def __init__(self, questions: Union[str, list, dict, None] = None, 
                  client: openai.OpenAI = None, 
                  base_url: str = None,
                  config: Config = None,
+                 infer_types: bool = True,
                  **kwargs):
         """
         Initialize Inquiry with questions and OpenAI client.
@@ -39,13 +41,7 @@ class Inquiry(object):
         # Set up logging
         self.logger = setup_logging(self.config)
         
-        # Normalize and validate questions
-        self.questions = self.normalize_questions(questions or {})
-        if self.questions:
-            validate_questions_config(self.questions)
-            self.logger.info(f"Loaded {len(self.questions)} questions")
-        
-        # Initialize OpenAI client
+        # Initialize OpenAI client first
         if client:
             self.client = client
         else:
@@ -69,8 +65,61 @@ class Inquiry(object):
                 self.logger.error(f"Failed to initialize OpenAI client: {e}")
                 raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
         
+        # Normalize and validate questions
+        self.questions = self.normalize_questions(questions or {})
+        if self.questions:
+            # Infer types for questions that don't have them specified
+            if infer_types:
+                self.questions = self._infer_missing_types(self.questions)
+            
+            validate_questions_config(self.questions)
+            self.logger.info(f"Loaded {len(self.questions)} questions")
+        
         self.schema_class = None
         self._build_schema()
+    
+    def _infer_missing_types(self, questions: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """
+        Infer data types for questions that don't have them specified.
+        
+        Args:
+            questions: Dictionary of questions
+            
+        Returns:
+            Dictionary of questions with inferred types
+        """
+        # Find questions without explicit types (defaulted to 'str')
+        questions_needing_inference = {}
+        for name, data in questions.items():
+            # Check if type was explicitly set or just defaulted
+            if data.get('type') == 'str' and not data.get('_type_explicit', False):
+                questions_needing_inference[name] = data['question']
+        
+        if not questions_needing_inference:
+            self.logger.debug("No questions need type inference")
+            return questions
+        
+        self.logger.info(f"Inferring types for {len(questions_needing_inference)} questions")
+        
+        try:
+            # Create type inferrer with same client and config
+            inferrer = DataTypeInferrer(client=self.client, config=self.config)
+            
+            # Infer types
+            suggestions = inferrer.infer_types(questions_needing_inference)
+            
+            # Update questions with inferred types
+            updated_questions = questions.copy()
+            for name, suggestion in suggestions.items():
+                if name in updated_questions:
+                    updated_questions[name]['type'] = suggestion.suggested_type
+                    self.logger.debug(f"Inferred type '{suggestion.suggested_type}' for question '{name}': {suggestion.reasoning}")
+            
+            return updated_questions
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to infer types, using defaults: {e}")
+            return questions
     
     @classmethod
     def from_file(cls, questions_file: str, **kwargs) -> 'Inquiry':

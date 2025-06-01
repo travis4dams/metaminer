@@ -131,32 +131,36 @@ def _parse_csv_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
                 
                 # Extract data type
                 data_type = "str"  # default
+                type_explicit = False
                 for header in headers:
                     if header.lower().strip() in ['data_type', 'type', 'dtype']:
                         type_value = row[header].strip()  # Don't convert to lowercase yet
-                        type_value_lower = type_value.lower()
-                        if type_value_lower in ['str', 'string', 'text']:
-                            data_type = "str"
-                        elif type_value_lower in ['int', 'integer', 'number']:
-                            data_type = "int"
-                        elif type_value_lower in ['float', 'decimal']:
-                            data_type = "float"
-                        elif type_value_lower in ['bool', 'boolean']:
-                            data_type = "bool"
-                        elif type_value_lower in ['date', 'datetime']:
-                            data_type = "date"
-                        elif _is_valid_array_type(type_value_lower):
-                            data_type = type_value  # Keep original case for array type
-                        elif _is_valid_enum_type(type_value_lower):
-                            data_type = type_value  # Keep original case for enum type
-                        else:
-                            data_type = "str"  # fallback
+                        if type_value:  # Only if there's actually a value
+                            type_explicit = True
+                            type_value_lower = type_value.lower()
+                            if type_value_lower in ['str', 'string', 'text']:
+                                data_type = "str"
+                            elif type_value_lower in ['int', 'integer', 'number']:
+                                data_type = "int"
+                            elif type_value_lower in ['float', 'decimal']:
+                                data_type = "float"
+                            elif type_value_lower in ['bool', 'boolean']:
+                                data_type = "bool"
+                            elif type_value_lower in ['date', 'datetime']:
+                                data_type = "date"
+                            elif _is_valid_array_type(type_value_lower):
+                                data_type = type_value  # Keep original case for array type
+                            elif _is_valid_enum_type(type_value_lower):
+                                data_type = type_value  # Keep original case for enum type
+                            else:
+                                data_type = "str"  # fallback
                         break
                 
                 questions[field_name] = {
                     "question": question_text,
                     "type": data_type,
-                    "output_name": field_name
+                    "output_name": field_name,
+                    "_type_explicit": type_explicit
                 }
     
     except Exception as e:

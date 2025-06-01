@@ -197,10 +197,14 @@ def validate_questions(questions: dict) -> None:
             if _is_valid_array_type(value["type"]):
                 # Array type is valid
                 pass
+            # Check if it's a valid enum type
+            elif _is_valid_enum_type(value["type"]):
+                # Enum type is valid
+                pass
             elif value["type"].lower() not in valid_types:
                 raise ValueError(
                     f"Invalid type '{value['type']}' for question '{key}'. "
-                    f"Valid types: {valid_types} or array types like list(str), list(int), etc."
+                    f"Valid types: {valid_types} or array types like list(str), list(int), etc., or enum types like enum(val1,val2,val3)"
                 )
 
 
@@ -233,3 +237,44 @@ def _is_valid_array_type(type_str: str) -> bool:
     }
     
     return base_type in valid_base_types
+
+
+def _is_valid_enum_type(type_str: str) -> bool:
+    """
+    Check if a type string represents a valid enum type specification.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        bool: True if it's a valid enum type specification
+    """
+    type_str = type_str.strip().lower()
+    
+    # Check if this matches enum(val1,val2,...) or multi_enum(val1,val2,...) pattern
+    if type_str.startswith("enum(") and type_str.endswith(")"):
+        return _validate_enum_values(type_str[5:-1])
+    elif type_str.startswith("multi_enum(") and type_str.endswith(")"):
+        return _validate_enum_values(type_str[11:-1])
+    
+    return False
+
+
+def _validate_enum_values(values_str: str) -> bool:
+    """
+    Validate that enum values string contains valid comma-separated values.
+    
+    Args:
+        values_str: Comma-separated values string
+        
+    Returns:
+        bool: True if valid
+    """
+    if not values_str.strip():
+        return False
+    
+    # Split by comma and check each value
+    values = [v.strip() for v in values_str.split(',')]
+    
+    # Must have at least one value, and all values must be non-empty
+    return len(values) > 0 and all(v for v in values)
