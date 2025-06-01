@@ -5,6 +5,7 @@ import csv
 import os
 from typing import Dict, List, Any, Union
 from pathlib import Path
+import re
 
 
 def parse_questions_from_file(file_path: str) -> Dict[str, Dict[str, Any]]:
@@ -143,6 +144,8 @@ def _parse_csv_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
                             data_type = "bool"
                         elif type_value in ['date', 'datetime']:
                             data_type = "date"
+                        elif _is_valid_array_type(type_value):
+                            data_type = type_value  # Keep array type as-is
                         else:
                             data_type = "str"  # fallback
                         break
@@ -157,6 +160,37 @@ def _parse_csv_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
         raise ValueError(f"Failed to parse CSV file {file_path}: {e}")
     
     return questions
+
+
+def _is_valid_array_type(type_str: str) -> bool:
+    """
+    Check if a type string represents a valid array type specification.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        bool: True if it's a valid array type specification
+    """
+    type_str = type_str.strip().lower()
+    
+    # Check if this matches the list(type) pattern
+    if not (type_str.startswith("list(") and type_str.endswith(")")):
+        return False
+    
+    # Extract the base type
+    base_type = type_str[5:-1].strip()
+    
+    # Valid base types for arrays
+    valid_base_types = {
+        'str', 'string', 'text',
+        'int', 'integer', 'number',
+        'float', 'decimal',
+        'bool', 'boolean',
+        'date', 'datetime'
+    }
+    
+    return base_type in valid_base_types
 
 
 def validate_questions(questions: Dict[str, Dict[str, Any]]) -> bool:
