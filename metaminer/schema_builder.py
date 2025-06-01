@@ -1,7 +1,7 @@
 """
 Schema builder module for creating dynamic Pydantic models from questions.
 """
-from typing import Dict, Any, Type, Optional
+from typing import Dict, Any, Type, Optional, List, Tuple
 try:
     from typing import Annotated
 except ImportError:
@@ -95,16 +95,25 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
         field_description = question_data.get("question", "")
         output_name = question_data.get("output_name", field_name)
         
-        if field_type_str == "date":
+        # Check if this is an array type
+        is_array, base_type_str = _parse_array_type(field_type_str)
+        
+        if base_type_str == "date":
             # Create annotated type with validator
             date_validator = _create_date_validator(output_name)
-            annotated_type = Annotated[Optional[date], BeforeValidator(date_validator)]
+            if is_array:
+                annotated_type = Annotated[Optional[List[date]], BeforeValidator(lambda v: [date_validator(item) if item is not None else None for item in (v or [])])]
+            else:
+                annotated_type = Annotated[Optional[date], BeforeValidator(date_validator)]
             fields[output_name] = (annotated_type, Field(description=field_description))
             
-        elif field_type_str == "datetime":
+        elif base_type_str == "datetime":
             # Create annotated type with validator
             datetime_validator = _create_datetime_validator(output_name)
-            annotated_type = Annotated[Optional[datetime], BeforeValidator(datetime_validator)]
+            if is_array:
+                annotated_type = Annotated[Optional[List[datetime]], BeforeValidator(lambda v: [datetime_validator(item) if item is not None else None for item in (v or [])])]
+            else:
+                annotated_type = Annotated[Optional[datetime], BeforeValidator(datetime_validator)]
             fields[output_name] = (annotated_type, Field(description=field_description))
             
         else:
@@ -113,6 +122,27 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
     
     # Create the dynamic model
     return create_model(schema_name, **fields)
+
+
+def _parse_array_type(type_str: str) -> Tuple[bool, str]:
+    """
+    Parse array type specification like 'list(str)'.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        Tuple[bool, str]: (is_array, base_type_str)
+    """
+    type_str = type_str.strip().lower()
+    
+    # Check if this is an array type specification
+    if type_str.startswith("list(") and type_str.endswith(")"):
+        # Extract the base type from list(base_type)
+        base_type = type_str[5:-1].strip()
+        return True, base_type
+    
+    return False, type_str
 
 
 def _get_python_type(type_str: str) -> Type:
@@ -125,6 +155,10 @@ def _get_python_type(type_str: str) -> Type:
     Returns:
         Type: Corresponding Python type
     """
+    # Check if this is an array type
+    is_array, base_type_str = _parse_array_type(type_str)
+    
+    # Get the base type
     type_mapping = {
         "str": str,
         "string": str,
@@ -140,7 +174,13 @@ def _get_python_type(type_str: str) -> Type:
         "datetime": datetime,
     }
     
-    return type_mapping.get(type_str.lower(), str)
+    base_type = type_mapping.get(base_type_str.lower(), str)
+    
+    # Return List[base_type] for array types
+    if is_array:
+        return List[base_type]
+    
+    return base_type
 
 
 def create_extraction_prompt(questions: Dict[str, Dict[str, Any]], 
@@ -225,39 +265,11 @@ def schema_to_dict(schema_instance: BaseModel, schema_class: Type[BaseModel] = N
     
     Args:
         schema_instance: Validated Pydantic model instance
+        schema_class: Optional schema class (unused, kept for backward compatibility)
         
     Returns:
         Dict[str, Any]: Dictionary representation
     """
-    # Handle MagicMock objects in tests
-    if hasattr(schema_instance, '_mock_name'):
-        # This is a MagicMock object from tests, return a mock dict
-        # Use the schema class to determine what fields to return
-        if schema_class and hasattr(schema_class, 'model_fields'):
-            field_names = list(schema_class.model_fields.keys())
-            
-            # Check if this is a multi-field schema
-            if len(field_names) > 1 or 'title' in field_names or 'author' in field_names:
-                # Multi-field test case
-                result = {}
-                for field_name in field_names:
-                    if field_name == 'title':
-                        result[field_name] = "AI in Healthcare"
-                    elif field_name == 'author':
-                        result[field_name] = "Dr. Jane Smith"
-                    elif field_name == 'year':
-                        result[field_name] = 2023
-                    else:
-                        result[field_name] = "Test Value"
-                return result
-            else:
-                # Single field test case
-                field_name = field_names[0] if field_names else "default"
-                return {field_name: "Test Author"}
-        else:
-            # Fallback for cases without schema class
-            return {"default": "Test Author"}
-    
     return schema_instance.model_dump()
 
 

@@ -42,6 +42,9 @@ def mock_openai_client():
     mock_response.choices[0].message.content = '{"default": "Test Author"}'
     mock_client.chat.completions.create.return_value = mock_response
     
+    # Mock the structured output API to fail (so it falls back to JSON mode)
+    mock_client.beta.chat.completions.parse.side_effect = AttributeError("Structured output not available")
+    
     # Mock models list
     mock_model = MagicMock()
     mock_model.id = "gpt-3.5-turbo"
@@ -215,13 +218,23 @@ class TestInquiryAPIHandling:
     
     def test_api_retry_on_rate_limit(self, test_config, sample_document):
         """Test API retry logic on rate limit error."""
+        # Import openai to get the actual exception classes
+        import openai
+        
         mock_client = MagicMock()
+        
+        # Create a mock response for the RateLimitError
+        mock_response = MagicMock()
+        mock_response.request = MagicMock()
         
         # Mock rate limit error on first call, success on second
         mock_client.chat.completions.create.side_effect = [
-            Exception("Rate limit exceeded"),  # First call fails
+            openai.RateLimitError("Rate limit exceeded", response=mock_response, body=None),  # First call fails
             MagicMock(choices=[MagicMock(message=MagicMock(content='{"default": "Test Author"}'))])  # Second call succeeds
         ]
+        
+        # Mock the structured output API to fail (so it falls back to JSON mode)
+        mock_client.beta.chat.completions.parse.side_effect = AttributeError("Structured output not available")
         
         # Mock models list
         mock_model = MagicMock()

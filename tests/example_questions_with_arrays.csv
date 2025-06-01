@@ -1,0 +1,8 @@
+question,field_name,data_type
+"Who are the authors?",authors,list(str)
+"What are the keywords?",keywords,list(str)
+"What are the page numbers mentioned?",page_numbers,list(int)
+"What is the title?",title,str
+"What are the publication dates?",publication_dates,list(date)
+"What are the chapter scores?",chapter_scores,list(float)
+"Are the sections complete?",sections_complete,list(bool)

@@ -192,8 +192,44 @@ def validate_questions(questions: dict) -> None:
         if "type" in value:
             valid_types = ["str", "string", "text", "int", "integer", "number", 
                           "float", "decimal", "bool", "boolean", "date", "datetime"]
-            if value["type"].lower() not in valid_types:
+            
+            # Check if it's a valid array type
+            if _is_valid_array_type(value["type"]):
+                # Array type is valid
+                pass
+            elif value["type"].lower() not in valid_types:
                 raise ValueError(
                     f"Invalid type '{value['type']}' for question '{key}'. "
-                    f"Valid types: {valid_types}"
+                    f"Valid types: {valid_types} or array types like list(str), list(int), etc."
                 )
+
+
+def _is_valid_array_type(type_str: str) -> bool:
+    """
+    Check if a type string represents a valid array type specification.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        bool: True if it's a valid array type specification
+    """
+    type_str = type_str.strip().lower()
+    
+    # Check if this matches the list(type) pattern
+    if not (type_str.startswith("list(") and type_str.endswith(")")):
+        return False
+    
+    # Extract the base type
+    base_type = type_str[5:-1].strip()
+    
+    # Valid base types for arrays
+    valid_base_types = {
+        'str', 'string', 'text',
+        'int', 'integer', 'number',
+        'float', 'decimal',
+        'bool', 'boolean',
+        'date', 'datetime'
+    }
+    
+    return base_type in valid_base_types
