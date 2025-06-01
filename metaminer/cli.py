@@ -62,6 +62,12 @@ Examples:
         help="Enable verbose output"
     )
     
+    parser.add_argument(
+        "--show-questions",
+        action="store_true",
+        help="Output the normalized question structure with inferred types and exit"
+    )
+    
     args = parser.parse_args()
     
     # Validate inputs
@@ -83,6 +89,38 @@ Examples:
             print(f"Loading questions from: {args.questions_file}", file=sys.stderr)
         
         inquiry = Inquiry.from_file(args.questions_file, base_url=args.base_url)
+        
+        # If show-questions flag is set, output the normalized questions and exit
+        if args.show_questions:
+            import pandas as pd
+            
+            questions_data = []
+            for name, data in inquiry.questions.items():
+                questions_data.append({
+                    'field_name': name,
+                    'question': data['question'],
+                    'data_type': data.get('type', 'str'),
+                    'output_name': data.get('output_name', name)
+                })
+            
+            questions_df = pd.DataFrame(questions_data)
+            
+            if args.output:
+                output_path = Path(args.output)
+                if args.format == "csv":
+                    questions_df.to_csv(output_path, index=False)
+                elif args.format == "json":
+                    questions_df.to_json(output_path, orient="records", indent=2)
+                
+                if args.verbose:
+                    print(f"Questions saved to: {output_path}", file=sys.stderr)
+            else:
+                if args.format == "csv":
+                    print(questions_df.to_csv(index=False))
+                elif args.format == "json":
+                    print(questions_df.to_json(orient="records", indent=2))
+            
+            return
         
         if args.verbose:
             print(f"Processing documents from: {args.documents}", file=sys.stderr)
