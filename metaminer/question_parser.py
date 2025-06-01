@@ -260,7 +260,7 @@ def _extract_enum_values(type_str: str) -> List[str]:
     values = [v.strip() for v in values_str.split(',')]
     return [v for v in values if v]  # Filter out empty values
 
-
+ 
 def validate_questions(questions: Dict[str, Dict[str, Any]]) -> bool:
     """
     Validate the structure of parsed questions.

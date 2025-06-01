@@ -1,7 +1,9 @@
 """
 Schema builder module for creating dynamic Pydantic models from questions.
 """
+
 from typing import Dict, Any, Type, Optional, List, Tuple, Literal, Union
+
 try:
     from typing import Annotated
 except ImportError:
@@ -178,6 +180,7 @@ def _get_python_type(type_str: str) -> Type:
     Returns:
         Type: Corresponding Python type
     """
+
     # Check if this is an enum type first
     is_enum, is_multi, enum_values = _parse_enum_type(type_str)
     if is_enum:
