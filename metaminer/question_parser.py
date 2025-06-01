@@ -133,19 +133,22 @@ def _parse_csv_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
                 data_type = "str"  # default
                 for header in headers:
                     if header.lower().strip() in ['data_type', 'type', 'dtype']:
-                        type_value = row[header].strip().lower()
-                        if type_value in ['str', 'string', 'text']:
+                        type_value = row[header].strip()  # Don't convert to lowercase yet
+                        type_value_lower = type_value.lower()
+                        if type_value_lower in ['str', 'string', 'text']:
                             data_type = "str"
-                        elif type_value in ['int', 'integer', 'number']:
+                        elif type_value_lower in ['int', 'integer', 'number']:
                             data_type = "int"
-                        elif type_value in ['float', 'decimal']:
+                        elif type_value_lower in ['float', 'decimal']:
                             data_type = "float"
-                        elif type_value in ['bool', 'boolean']:
+                        elif type_value_lower in ['bool', 'boolean']:
                             data_type = "bool"
-                        elif type_value in ['date', 'datetime']:
+                        elif type_value_lower in ['date', 'datetime']:
                             data_type = "date"
-                        elif _is_valid_array_type(type_value):
-                            data_type = type_value  # Keep array type as-is
+                        elif _is_valid_array_type(type_value_lower):
+                            data_type = type_value  # Keep original case for array type
+                        elif _is_valid_enum_type(type_value_lower):
+                            data_type = type_value  # Keep original case for enum type
                         else:
                             data_type = "str"  # fallback
                         break
@@ -193,6 +196,71 @@ def _is_valid_array_type(type_str: str) -> bool:
     return base_type in valid_base_types
 
 
+def _is_valid_enum_type(type_str: str) -> bool:
+    """
+    Check if a type string represents a valid enum type specification.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        bool: True if it's a valid enum type specification
+    """
+    type_str = type_str.strip().lower()
+    
+    # Check if this matches enum(val1,val2,...) or multi_enum(val1,val2,...) pattern
+    if type_str.startswith("enum(") and type_str.endswith(")"):
+        return _validate_enum_values(type_str[5:-1])
+    elif type_str.startswith("multi_enum(") and type_str.endswith(")"):
+        return _validate_enum_values(type_str[11:-1])
+    
+    return False
+
+
+def _validate_enum_values(values_str: str) -> bool:
+    """
+    Validate that enum values string contains valid comma-separated values.
+    
+    Args:
+        values_str: Comma-separated values string
+        
+    Returns:
+        bool: True if valid
+    """
+    if not values_str.strip():
+        return False
+    
+    # Split by comma and check each value
+    values = [v.strip() for v in values_str.split(',')]
+    
+    # Must have at least one value, and all values must be non-empty
+    return len(values) > 0 and all(v for v in values)
+
+
+def _extract_enum_values(type_str: str) -> List[str]:
+    """
+    Extract enum values from type string.
+    
+    Args:
+        type_str: Type string like 'enum(val1,val2,val3)' or 'multi_enum(val1,val2,val3)'
+        
+    Returns:
+        List[str]: List of enum values
+    """
+    type_str = type_str.strip()
+    
+    if type_str.startswith("enum(") and type_str.endswith(")"):
+        values_str = type_str[5:-1]
+    elif type_str.startswith("multi_enum(") and type_str.endswith(")"):
+        values_str = type_str[11:-1]
+    else:
+        return []
+    
+    # Split by comma and clean up values
+    values = [v.strip() for v in values_str.split(',')]
+    return [v for v in values if v]  # Filter out empty values
+
+ 
 def validate_questions(questions: Dict[str, Dict[str, Any]]) -> bool:
     """
     Validate the structure of parsed questions.

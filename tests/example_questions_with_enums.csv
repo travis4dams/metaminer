@@ -1,0 +1,7 @@
+question,field_name,data_type
+"What is the document type?",doc_type,"enum(report,memo,letter,invoice)"
+"What topics are covered?",topics,"multi_enum(finance,hr,marketing,operations)"
+"What is the priority level?",priority,"enum(low,medium,high,urgent)"
+"What is the title?",title,str
+"Who is the author?",author,str
+"What department issued this?",department,"enum(accounting,legal,hr,it,marketing)"

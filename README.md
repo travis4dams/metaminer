@@ -101,6 +101,9 @@ Supported data types:
 - `float`: Decimal numbers
 - `bool`: True/False values
 - `date`: Date values
+- `list(type)`: Arrays of values (e.g., `list(str)`, `list(int)`)
+- `enum(val1,val2,val3)`: Single choice from discrete values
+- `multi_enum(val1,val2,val3)`: Multiple choices from discrete values
 
 ## Supported Document Formats
 
@@ -206,6 +209,18 @@ What is the effective date?
 What is the termination date?
 What are the key obligations?
 ```
+
+### Document Classification with Enums
+```csv
+question,field_name,data_type
+"What is the document type?",doc_type,"enum(report,memo,letter,invoice)"
+"What topics are covered?",topics,"multi_enum(finance,hr,marketing,operations)"
+"What is the priority level?",priority,"enum(low,medium,high,urgent)"
+"What is the title?",title,str
+"Who is the author?",author,str
+```
+
+**Note**: When using enum types in CSV files, make sure to quote the entire type specification to prevent CSV parsing issues with commas.
 
 ## Development
 

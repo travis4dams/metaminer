@@ -1,7 +1,9 @@
 """
 Schema builder module for creating dynamic Pydantic models from questions.
 """
-from typing import Dict, Any, Type, Optional, List, Tuple
+
+from typing import Dict, Any, Type, Optional, List, Tuple, Literal, Union
+
 try:
     from typing import Annotated
 except ImportError:
@@ -9,6 +11,7 @@ except ImportError:
 from pydantic import BaseModel, Field, field_validator, create_model, BeforeValidator
 from dateutil import parser as date_parser
 from datetime import date, datetime
+from .question_parser import _extract_enum_values
 
 
 def create_date_validator(field_name: str, target_type: type):
@@ -145,6 +148,28 @@ def _parse_array_type(type_str: str) -> Tuple[bool, str]:
     return False, type_str
 
 
+def _parse_enum_type(type_str: str) -> Tuple[bool, bool, List[str]]:
+    """
+    Parse enum type specification like 'enum(val1,val2,val3)' or 'multi_enum(val1,val2,val3)'.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        Tuple[bool, bool, List[str]]: (is_enum, is_multi, enum_values)
+    """
+    type_str = type_str.strip()
+    
+    if type_str.startswith("enum(") and type_str.endswith(")"):
+        enum_values = _extract_enum_values(type_str)
+        return True, False, enum_values
+    elif type_str.startswith("multi_enum(") and type_str.endswith(")"):
+        enum_values = _extract_enum_values(type_str)
+        return True, True, enum_values
+    
+    return False, False, []
+
+
 def _get_python_type(type_str: str) -> Type:
     """
     Convert string type to Python type.
@@ -155,6 +180,26 @@ def _get_python_type(type_str: str) -> Type:
     Returns:
         Type: Corresponding Python type
     """
+
+    # Check if this is an enum type first
+    is_enum, is_multi, enum_values = _parse_enum_type(type_str)
+    if is_enum:
+        if len(enum_values) == 1:
+            # Single value enum - use Literal with one value
+            literal_type = Literal[enum_values[0]]
+        else:
+            # Multiple values - create Literal with all values as separate arguments
+            # We need to use eval to create the proper Literal type dynamically
+            literal_args = ', '.join([repr(val) for val in enum_values])
+            literal_type = eval(f"Literal[{literal_args}]")
+        
+        if is_multi:
+            # Multi-enum: List of Literal values
+            return List[literal_type]
+        else:
+            # Single enum: Just the Literal type
+            return literal_type
+    
     # Check if this is an array type
     is_array, base_type_str = _parse_array_type(type_str)
     
@@ -204,7 +249,19 @@ def create_extraction_prompt(questions: Dict[str, Dict[str, Any]],
         question_text = question_data.get("question", "")
         data_type = question_data.get("type", "str")
         
-        questions_list.append(f"- {output_name} ({data_type}): {question_text}")
+        # Check if this is an enum type and provide enhanced instructions
+        is_enum, is_multi, enum_values = _parse_enum_type(data_type)
+        if is_enum:
+            values_str = ", ".join(enum_values)
+            if is_multi:
+                instruction = f"Select all that apply from: [{values_str}]"
+                questions_list.append(f"- {output_name}: {question_text}\n  {instruction}")
+            else:
+                instruction = f"Choose one from: [{values_str}]"
+                questions_list.append(f"- {output_name}: {question_text}\n  {instruction}")
+        else:
+            # Use current format for non-enum types
+            questions_list.append(f"- {output_name} ({data_type}): {question_text}")
     
     questions_str = "\n".join(questions_list)
     
@@ -217,6 +274,8 @@ Please answer the following questions based on the document content:
 {questions_str}
 
 Return your response as a JSON object with the exact field names specified above. If information is not available in the document, use null for the field value.
+
+For enum fields, you must choose only from the specified valid options. If the document contains similar but not exact matches, choose the closest valid option or use null if no reasonable match exists.
 
 Example response format:
 {{
