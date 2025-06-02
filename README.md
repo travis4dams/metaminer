@@ -45,13 +45,23 @@ metaminer questions.txt documents/ --format json --output results.json
 
 # Custom API endpoint
 metaminer questions.txt documents/ --base-url http://localhost:8000/api/v1
+
+# Show normalized question structure with inferred types
+metaminer questions.txt --show-questions --output questions_analysis.csv
+
+# Verbose output for debugging
+metaminer questions.txt documents/ --verbose
+
+# Custom API key
+metaminer questions.txt documents/ --api-key your-api-key
 ```
 
 ### Python Module
 
 ```python
 from metaminer import Inquiry, extract_metadata, Config
-from metaminer import extract_text, get_supported_extensions
+from metaminer import extract_text, extract_text_from_directory, get_supported_extensions
+from metaminer import DataTypeInferrer, infer_question_types, setup_logging
 import pandas as pd
 
 # From question file
@@ -68,12 +78,29 @@ result = inquiry.process_document("document.pdf")
 # Extract text directly
 text = extract_text("document.pdf")
 
+# Extract text from directory
+texts = extract_text_from_directory("documents/")
+
 # Get supported file extensions
 extensions = get_supported_extensions()
 
 # Use configuration
 config = Config()
 print(f"Default API endpoint: {config.base_url}")
+
+# Set up logging
+logger = setup_logging(config)
+
+# Infer data types for questions
+questions = ["Who is the author?", "What is the publication date?", "How many pages?"]
+type_suggestions = infer_question_types(questions)
+for q, suggestion in type_suggestions.items():
+    print(f"{q}: {suggestion.suggested_type} - {suggestion.reasoning}")
+
+# Use DataTypeInferrer directly
+inferrer = DataTypeInferrer()
+suggestion = inferrer.infer_single_type("What is the priority level?")
+print(f"Suggested type: {suggestion.suggested_type}")
 ```
 
 ## Question Formats
@@ -100,8 +127,9 @@ Supported data types:
 - `int`: Integer numbers
 - `float`: Decimal numbers
 - `bool`: True/False values
-- `date`: Date values
-- `list(type)`: Arrays of values (e.g., `list(str)`, `list(int)`)
+- `date`: Date values (e.g., YYYY-MM-DD)
+- `datetime`: Date and time values (e.g., YYYY-MM-DD HH:MM:SS)
+- `list(type)`: Arrays of values (e.g., `list(str)`, `list(int)`, `list(date)`)
 - `enum(val1,val2,val3)`: Single choice from discrete values
 - `multi_enum(val1,val2,val3)`: Multiple choices from discrete values
 
@@ -222,6 +250,59 @@ question,field_name,data_type
 
 **Note**: When using enum types in CSV files, make sure to quote the entire type specification to prevent CSV parsing issues with commas.
 
+## Data Type Inference
+
+Metaminer includes an intelligent data type inference system that can automatically suggest appropriate data types for your questions. This feature uses AI to analyze question content and recommend the most suitable data types.
+
+### Using Type Inference
+
+```python
+from metaminer import DataTypeInferrer, infer_question_types
+
+# Infer types for multiple questions
+questions = [
+    "Who is the author?",
+    "What is the publication date?", 
+    "How many pages are there?",
+    "Is this document confidential?",
+    "What is the priority level?"
+]
+
+type_suggestions = infer_question_types(questions)
+for question_id, suggestion in type_suggestions.items():
+    print(f"Question: {questions[int(question_id.split('_')[1])-1]}")
+    print(f"Suggested type: {suggestion.suggested_type}")
+    print(f"Reasoning: {suggestion.reasoning}")
+    print(f"Alternatives: {suggestion.alternatives}")
+    print()
+```
+
+### CLI Type Analysis
+
+You can also analyze your questions from the command line:
+
+```bash
+# Analyze questions and show suggested types
+metaminer questions.txt --show-questions
+
+# Save analysis to file
+metaminer questions.txt --show-questions --output question_analysis.csv
+```
+
+This will output a structured analysis showing:
+- Original questions
+- Suggested data types
+- Field names
+- Reasoning for type suggestions
+
+### Type Inference Features
+
+- **Smart Analysis**: Uses AI to understand question context and intent
+- **Fallback Logic**: Provides sensible defaults when AI analysis fails
+- **Validation**: Ensures all suggested types are valid metaminer data types
+- **Multiple Suggestions**: Provides alternative type options
+- **Reasoning**: Explains why each type was suggested
+
 ## Development
 
 ### Running Tests
@@ -238,6 +319,7 @@ metaminer/
 ├── document_reader.py   # Document text extraction
 ├── question_parser.py   # Question file parsing
 ├── schema_builder.py    # Pydantic schema generation
+├── datatype_inferrer.py # AI-powered data type inference
 ├── extractor.py         # Metadata extraction utilities
 ├── config.py           # Configuration management
 ├── cli.py              # Command-line interface

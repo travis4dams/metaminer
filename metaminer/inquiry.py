@@ -241,6 +241,98 @@ class Inquiry(object):
         # If we get here, all retries failed
         raise RuntimeError(f"Failed to call OpenAI API after {self.config.max_retries + 1} attempts. Last error: {last_exception}")
     
+    def process_text(self, text: Union[str, List[str]], metadata: Union[Dict[str, Any], List[Dict[str, Any]], None] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Process text content directly and extract information.
+        
+        Args:
+            text: Text content to process (single string or list of strings)
+            metadata: Optional metadata to include in results (dict for single text, list of dicts for multiple texts)
+            
+        Returns:
+            Dict[str, Any] or List[Dict[str, Any]]: Extracted information
+            
+        Raises:
+            ValueError: If no questions defined or invalid input
+            RuntimeError: If processing fails
+        """
+        if not self.questions:
+            raise ValueError("No questions defined")
+        
+        # Handle single text input
+        if isinstance(text, str):
+            return self._process_single_text(text, metadata or {})
+        
+        # Handle multiple text inputs
+        elif isinstance(text, list):
+            if not all(isinstance(t, str) for t in text):
+                raise ValueError("All items in text list must be strings")
+            
+            # Ensure metadata is a list with same length as text
+            if metadata is None:
+                metadata = [{}] * len(text)
+            elif isinstance(metadata, dict):
+                metadata = [metadata] * len(text)
+            elif isinstance(metadata, list):
+                if len(metadata) != len(text):
+                    raise ValueError("Metadata list must have same length as text list")
+            else:
+                raise ValueError("Metadata must be dict, list of dicts, or None")
+            
+            results = []
+            for i, (single_text, single_metadata) in enumerate(zip(text, metadata)):
+                try:
+                    result = self._process_single_text(single_text, single_metadata)
+                    results.append(result)
+                except Exception as e:
+                    self.logger.error(f"Failed to process text item {i}: {e}")
+                    # Continue processing other texts
+                    continue
+            
+            return results
+        
+        else:
+            raise ValueError("Text must be a string or list of strings")
+    
+    def _process_single_text(self, text: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a single text string and extract information.
+        
+        Args:
+            text: Text content to process
+            metadata: Metadata to include in result
+            
+        Returns:
+            Dict[str, Any]: Extracted information
+            
+        Raises:
+            ValueError: If text is empty
+            RuntimeError: If processing fails
+        """
+        if not text.strip():
+            raise ValueError("Text content cannot be empty")
+        
+        self.logger.debug(f"Processing text of {len(text)} characters")
+        
+        try:
+            # Create extraction prompt
+            prompt = create_extraction_prompt(self.questions, text, self.schema_class)
+            
+            # Call OpenAI API with structured output
+            self.logger.debug("Calling OpenAI API for extraction")
+            validated_result = self._call_openai_api(prompt)
+            
+            # Convert to dict and add metadata
+            final_result = schema_to_dict(validated_result, self.schema_class)
+            final_result.update(metadata)
+            
+            self.logger.debug("Successfully processed text")
+            return final_result
+            
+        except Exception as e:
+            self.logger.error(f"Failed to process text: {e}")
+            raise RuntimeError(f"Failed to process text: {e}")
+    
     def process_document(self, document_path: str) -> Dict[str, Any]:
         """
         Process a single document and extract information.
@@ -274,20 +366,16 @@ class Inquiry(object):
             
             self.logger.debug(f"Extracted {len(document_text)} characters from document")
             
-            # Create extraction prompt
-            prompt = create_extraction_prompt(self.questions, document_text, self.schema_class)
+            # Use the new text processing method with document metadata
+            metadata = {
+                '_document_path': document_path,
+                '_document_name': Path(document_path).name
+            }
             
-            # Call OpenAI API with structured output
-            self.logger.debug("Calling OpenAI API for extraction")
-            validated_result = self._call_openai_api(prompt)
-            
-            # Convert to dict and add metadata
-            final_result = schema_to_dict(validated_result, self.schema_class)
-            final_result['_document_path'] = document_path
-            final_result['_document_name'] = Path(document_path).name
+            result = self._process_single_text(document_text, metadata)
             
             self.logger.info(f"Successfully processed document: {document_path}")
-            return final_result
+            return result
             
         except Exception as e:
             self.logger.error(f"Failed to process document {document_path}: {e}")
@@ -338,25 +426,22 @@ class Inquiry(object):
         # Get all document texts from directory
         document_texts = extract_text_from_directory(directory_path)
         
-        results = []
+        # Prepare texts and metadata for batch processing
+        texts = []
+        metadata_list = []
+        
         for doc_path, doc_text in document_texts.items():
-            try:
-                # Create extraction prompt
-                prompt = create_extraction_prompt(self.questions, doc_text, self.schema_class)
-                
-                # Call OpenAI API with structured output
-                validated_result = self._call_openai_api(prompt)
-                
-                # Convert to dict and add metadata
-                final_result = schema_to_dict(validated_result, self.schema_class)
-                final_result['_document_path'] = doc_path
-                final_result['_document_name'] = Path(doc_path).name
-                
-                results.append(final_result)
-                
-            except Exception as e:
-                print(f"Warning: Failed to process {doc_path}: {e}")
-                continue
+            texts.append(doc_text)
+            metadata_list.append({
+                '_document_path': doc_path,
+                '_document_name': Path(doc_path).name
+            })
+        
+        if not texts:
+            return pd.DataFrame()
+        
+        # Process all texts using the new text processing method
+        results = self.process_text(texts, metadata_list)
         
         return pd.DataFrame(results)
 
