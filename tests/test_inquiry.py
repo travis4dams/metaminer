@@ -69,6 +69,39 @@ class TestInquiryInitialization:
         assert inquiry.questions["default"]["question"] == "Who is the author?"
         assert inquiry.questions["default"]["type"] == "str"
     
+    def test_inquiry_with_config_parameters(self, mock_openai_client):
+        """Test Inquiry initialization with Config parameters."""
+        from metaminer.config import Config
+        
+        config = Config(
+            model="gpt-4",
+            base_url="https://api.openai.com/v1",
+            api_key="test-key-123"
+        )
+        
+        inquiry = Inquiry(
+            questions="Who is the author?",
+            client=mock_openai_client,
+            config=config
+        )
+        
+        assert inquiry.config.model == "gpt-4"
+        assert inquiry.config.base_url == "https://api.openai.com/v1"
+        assert inquiry.config.api_key == "test-key-123"
+        assert len(inquiry.questions) == 1
+    
+    def test_inquiry_config_creation_with_no_config_provided(self, mock_openai_client):
+        """Test that Inquiry creates default Config when none provided."""
+        inquiry = Inquiry(
+            questions="Who is the author?",
+            client=mock_openai_client
+        )
+        
+        # Should create default config
+        assert inquiry.config is not None
+        assert inquiry.config.model == "gpt-3.5-turbo"  # Default
+        assert inquiry.config.base_url == "http://localhost:5001/api/v1"  # Default
+    
     def test_inquiry_with_list_questions(self, mock_openai_client, test_config):
         """Test Inquiry initialization with list of questions."""
         questions = ["Who is the author?", "What is the title?"]

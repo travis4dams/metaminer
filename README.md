@@ -75,6 +75,14 @@ df = inquiry.process_documents(["doc1.pdf", "doc2.docx"])
 # Single document
 result = inquiry.process_document("document.pdf")
 
+# Process text directly (without files)
+inquiry = Inquiry(questions=["Who is the author?", "What is the main topic?"])
+result = inquiry.process_text("This is a research paper by Dr. Smith about machine learning.")
+
+# Process multiple texts
+texts = ["Document 1 content...", "Document 2 content..."]
+results = inquiry.process_text(texts)
+
 # Extract text directly
 text = extract_text("document.pdf")
 
@@ -114,13 +122,20 @@ What is the main topic?
 ```
 
 ### CSV File (.csv)
-Structured format with optional field names and data types:
+Structured format with optional field names, data types, and default values:
 ```csv
-question,field_name,data_type
-"Who is the author?",author,str
-"What is the publication date?",pub_date,date
-"How many pages?",page_count,int
+question,field_name,data_type,default
+"Who is the author?",author,str,"Unknown"
+"What is the publication date?",pub_date,date,
+"How many pages?",page_count,int,0
+"What is the document type?",doc_type,"enum(report,memo,letter)","report"
 ```
+
+**CSV Columns:**
+- `question` (required): The question to ask about each document
+- `field_name` (optional): Custom field name for the output (defaults to auto-generated)
+- `data_type` (optional): Data type specification (defaults to `str`)
+- `default` (optional): Default value to use when extraction fails or returns empty
 
 Supported data types:
 - `str` (default): Text
@@ -206,6 +221,18 @@ author,pub_date,page_count,_document_path,_document_name
 "Jane Smith","2023-02-20",18,"/path/to/doc2.pdf","doc2.pdf"
 ```
 
+### Default Value Handling
+
+When extraction fails or returns empty values, default values (if specified) are used:
+
+```csv
+author,doc_type,priority,_document_path,_document_name
+"John Doe","report","high","/path/to/doc1.pdf","doc1.pdf"
+"Unknown","report","medium","/path/to/doc2.pdf","doc2.pdf"
+```
+
+In this example, the second document had no extractable author, so the default "Unknown" was used.
+
 ## Examples
 
 ### Research Paper Analysis
@@ -221,12 +248,12 @@ What methodology was used?
 
 ### Invoice Processing
 ```csv
-question,field_name,data_type
-"What is the invoice number?",invoice_number,str
-"What is the total amount?",total_amount,float
-"What is the invoice date?",invoice_date,date
-"Who is the vendor?",vendor_name,str
-"What is the due date?",due_date,date
+question,field_name,data_type,default
+"What is the invoice number?",invoice_number,str,"N/A"
+"What is the total amount?",total_amount,float,0.0
+"What is the invoice date?",invoice_date,date,
+"Who is the vendor?",vendor_name,str,"Unknown Vendor"
+"What is the due date?",due_date,date,
 ```
 
 ### Legal Document Review
@@ -238,17 +265,20 @@ What is the termination date?
 What are the key obligations?
 ```
 
-### Document Classification with Enums
+### Document Classification with Enums and Defaults
 ```csv
-question,field_name,data_type
-"What is the document type?",doc_type,"enum(report,memo,letter,invoice)"
-"What topics are covered?",topics,"multi_enum(finance,hr,marketing,operations)"
-"What is the priority level?",priority,"enum(low,medium,high,urgent)"
-"What is the title?",title,str
-"Who is the author?",author,str
+question,field_name,data_type,default
+"What is the document type?",doc_type,"enum(report,memo,letter,invoice)","report"
+"What topics are covered?",topics,"multi_enum(finance,hr,marketing,operations)","finance"
+"What is the priority level?",priority,"enum(low,medium,high,urgent)","medium"
+"What is the title?",title,str,"Untitled Document"
+"Who is the author?",author,str,"Unknown"
 ```
 
-**Note**: When using enum types in CSV files, make sure to quote the entire type specification to prevent CSV parsing issues with commas.
+**Notes**: 
+- When using enum types in CSV files, quote the entire type specification to prevent CSV parsing issues with commas
+- Default values for enums must be valid enum options
+- For multi-enum types, defaults can be single values or comma-separated lists
 
 ## Data Type Inference
 
@@ -310,6 +340,17 @@ This will output a structured analysis showing:
 pip install -e ".[dev]"
 pytest
 ```
+
+### Test Coverage
+The project includes comprehensive tests covering:
+- Core functionality (document processing, question parsing)
+- Data type validation and inference
+- Error handling and edge cases
+- CSV parsing with various formats
+- Default value handling
+- Date/datetime processing
+- Enum type validation
+- Text processing capabilities
 
 ### Project Structure
 ```
