@@ -80,7 +80,8 @@ class Inquiry(object):
     
     def _infer_missing_types(self, questions: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """
-        Infer data types for questions that don't have them specified.
+        Infer data types for questions that don't have them explicitly specified.
+        Only infers types when no data type is provided or when validation fails.
         
         Args:
             questions: Dictionary of questions
@@ -88,18 +89,19 @@ class Inquiry(object):
         Returns:
             Dictionary of questions with inferred types
         """
-        # Find questions without explicit types (defaulted to 'str')
+        # Find questions that need type inference
+        # Only infer when type was not explicitly provided (including explicit 'str')
         questions_needing_inference = {}
         for name, data in questions.items():
-            # Check if type was explicitly set or just defaulted
-            if data.get('type') == 'str' and not data.get('_type_explicit', False):
+            # Only infer if type was not explicitly set
+            if not data.get('_type_explicit', False):
                 questions_needing_inference[name] = data['question']
         
         if not questions_needing_inference:
-            self.logger.debug("No questions need type inference")
+            self.logger.debug("No questions need type inference - all types explicitly specified")
             return questions
         
-        self.logger.info(f"Inferring types for {len(questions_needing_inference)} questions")
+        self.logger.info(f"Inferring types for {len(questions_needing_inference)} questions without explicit types")
         
         try:
             # Create type inferrer with same client and config
@@ -113,6 +115,7 @@ class Inquiry(object):
             for name, suggestion in suggestions.items():
                 if name in updated_questions:
                     updated_questions[name]['type'] = suggestion.suggested_type
+                    updated_questions[name]['_type_explicit'] = False  # Mark as inferred, not explicit
                     self.logger.debug(f"Inferred type '{suggestion.suggested_type}' for question '{name}': {suggestion.reasoning}")
             
             return updated_questions
@@ -151,7 +154,7 @@ class Inquiry(object):
         """
         try:
             models = self.client.models.list()
-            if models.data:
+            if models.data and len(models.data) == 1:
                 return models.data[0].id
             return "gpt-3.5-turbo"  # fallback
         except Exception:
@@ -172,7 +175,7 @@ class Inquiry(object):
             ValueError: If JSON parsing fails
             RuntimeError: If API call fails after retries
         """
-        model_name = self._get_available_model()
+        model_name = self.config.model or self._get_available_model()
         last_exception = None
         
         for attempt in range(self.config.max_retries + 1):
@@ -461,21 +464,32 @@ class Inquiry(object):
             ValueError: If input format is invalid.
         """
         if isinstance(questions, str):
-            return {"default": {"question": questions, "type": "str"}}
+            return {"default": {"question": questions, "type": "str", "_type_explicit": False}}
         elif isinstance(questions, list):
             normalized = {}
             for q in questions:
                 if isinstance(q, str):
-                    normalized[f"question_{len(normalized)+1}"] = {"question": q, "type": "str"}
+                    normalized[f"question_{len(normalized)+1}"] = {
+                        "question": q, 
+                        "type": "str", 
+                        "_type_explicit": False
+                    }
                 elif isinstance(q, dict):
                     if "question" not in q:
                         raise ValueError("Question dictionary must contain 'question' key")
                     output_name = q.get("output_name", f"question_{len(normalized)+1}")
-                    normalized[output_name] = {
+                    # Check if type was explicitly provided
+                    type_explicit = "type" in q
+                    question_dict = {
                         "question": q["question"],
                         "type": q.get("type", "str"),
-                        "output_name": output_name
+                        "output_name": output_name,
+                        "_type_explicit": type_explicit
                     }
+                    # Add default value if specified
+                    if "default" in q:
+                        question_dict["default"] = q["default"]
+                    normalized[output_name] = question_dict
                 else:
                     raise ValueError("List elements must be strings or dictionaries")
             return normalized
@@ -487,11 +501,18 @@ class Inquiry(object):
                 if "question" not in value:
                     raise ValueError("Question dictionary must contain 'question' key")
                 output_name = value.get("output_name", key)
-                normalized[output_name] = {
+                # Check if type was explicitly provided
+                type_explicit = "type" in value or value.get("_type_explicit", False)
+                question_dict = {
                     "question": value["question"],
                     "type": value.get("type", "str"),
-                    "output_name": output_name
+                    "output_name": output_name,
+                    "_type_explicit": type_explicit
                 }
+                # Add default value if specified
+                if "default" in value:
+                    question_dict["default"] = value["default"]
+                normalized[output_name] = question_dict
             return normalized
         else:
             raise ValueError("Invalid input type for questions")

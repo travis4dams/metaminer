@@ -284,7 +284,7 @@ Only suggest valid metaminer data types. Provide clear reasoning for each sugges
             Validated InferenceResponse object
         """
         try:
-            model_name = self._get_available_model()
+            model_name = self.config.model or self._get_available_model()
             
             # Try structured output first
             try:
@@ -335,7 +335,7 @@ Only suggest valid metaminer data types. Provide clear reasoning for each sugges
         """
         try:
             models = self.client.models.list()
-            if models.data:
+            if models.data and len(models.data) == 1:
                 return models.data[0].id
             return "gpt-3.5-turbo"  # fallback
         except Exception:

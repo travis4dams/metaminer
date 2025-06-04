@@ -61,7 +61,8 @@ def _parse_text_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
             questions[field_name] = {
                 "question": line,
                 "type": "str",
-                "output_name": field_name
+                "output_name": field_name,
+                "_type_explicit": False  # Text files don't specify types explicitly
             }
     
     return questions
@@ -130,7 +131,7 @@ def _parse_csv_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
                     field_name = f"question_{i}"
                 
                 # Extract data type
-                data_type = "str"  # default
+                data_type = None  # No default - will be set based on whether type is explicit
                 type_explicit = False
                 for header in headers:
                     if header.lower().strip() in ['data_type', 'type', 'dtype']:
@@ -156,12 +157,38 @@ def _parse_csv_file(file_path: Path) -> Dict[str, Dict[str, Any]]:
                                 data_type = "str"  # fallback
                         break
                 
-                questions[field_name] = {
+                # Extract default value
+                default_value = None
+                for header in headers:
+                    if header.lower().strip() in ['default_value', 'default', 'default_val']:
+                        default_raw = row[header]
+                        if default_raw is not None:  # Check for None first
+                            default_raw = default_raw.strip()
+                            if default_raw:  # Only if there's actually a value
+                                default_value = default_raw
+                        break
+                
+                # Set default only if no explicit type was provided
+                if data_type is None:
+                    data_type = "str"
+                    type_explicit = False
+                
+                question_dict = {
                     "question": question_text,
                     "type": data_type,
                     "output_name": field_name,
                     "_type_explicit": type_explicit
                 }
+                
+                # Add default value if specified and validate it
+                if default_value is not None:
+                    try:
+                        validated_default = _validate_default_value(default_value, data_type, field_name)
+                        question_dict["default"] = validated_default
+                    except ValueError as e:
+                        raise ValueError(f"Invalid default value in CSV row {i}: {e}")
+                
+                questions[field_name] = question_dict
     
     except Exception as e:
         raise ValueError(f"Failed to parse CSV file {file_path}: {e}")
@@ -263,6 +290,130 @@ def _extract_enum_values(type_str: str) -> List[str]:
     # Split by comma and clean up values
     values = [v.strip() for v in values_str.split(',')]
     return [v for v in values if v]  # Filter out empty values
+
+
+def _validate_default_value(default_value: str, data_type: str, field_name: str) -> Any:
+    """
+    Validate and convert default value based on data type.
+    
+    Args:
+        default_value: Raw default value string from CSV
+        data_type: Data type specification
+        field_name: Field name for error messages
+        
+    Returns:
+        Any: Converted default value
+        
+    Raises:
+        ValueError: If default value is invalid for the data type
+    """
+    if default_value is None:
+        return None
+    
+    # Handle enum types first
+    is_enum, is_multi, enum_values = _parse_enum_type(data_type)
+    if is_enum:
+        if is_multi:
+            # Multi-enum: parse comma-separated values
+            default_list = [v.strip() for v in default_value.split(',')]
+            for val in default_list:
+                if val not in enum_values:
+                    raise ValueError(f"Default value '{val}' for field '{field_name}' is not in enum values: {enum_values}")
+            return default_list
+        else:
+            # Single enum: validate single value
+            if default_value not in enum_values:
+                raise ValueError(f"Default value '{default_value}' for field '{field_name}' is not in enum values: {enum_values}")
+            return default_value
+    
+    # Handle array types
+    is_array, base_type_str = _parse_array_type(data_type)
+    if is_array:
+        raise ValueError(f"Default values are not supported for array types (field '{field_name}')")
+    
+    # Handle basic types
+    type_lower = data_type.lower()
+    
+    if type_lower in ['str', 'string', 'text']:
+        return default_value
+    
+    elif type_lower in ['int', 'integer', 'number']:
+        try:
+            return int(default_value)
+        except ValueError:
+            raise ValueError(f"Default value '{default_value}' for field '{field_name}' cannot be converted to integer")
+    
+    elif type_lower in ['float', 'decimal']:
+        try:
+            return float(default_value)
+        except ValueError:
+            raise ValueError(f"Default value '{default_value}' for field '{field_name}' cannot be converted to float")
+    
+    elif type_lower in ['bool', 'boolean']:
+        lower_val = default_value.lower()
+        if lower_val in ['true', '1', 'yes', 'on']:
+            return True
+        elif lower_val in ['false', '0', 'no', 'off']:
+            return False
+        else:
+            raise ValueError(f"Default value '{default_value}' for field '{field_name}' is not a valid boolean (use true/false, 1/0, yes/no, on/off)")
+    
+    elif type_lower in ['date', 'datetime']:
+        # For date/datetime, we'll validate the format but keep as string
+        # The actual parsing will happen in the schema builder
+        try:
+            from dateutil import parser as date_parser
+            date_parser.parse(default_value)  # Just validate it can be parsed
+            return default_value
+        except (ValueError, TypeError):
+            raise ValueError(f"Default value '{default_value}' for field '{field_name}' is not a valid date/datetime format")
+    
+    else:
+        # Unknown type, treat as string
+        return default_value
+
+
+def _parse_enum_type(type_str: str) -> tuple:
+    """
+    Parse enum type specification like 'enum(val1,val2,val3)' or 'multi_enum(val1,val2,val3)'.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        Tuple[bool, bool, List[str]]: (is_enum, is_multi, enum_values)
+    """
+    type_str = type_str.strip()
+    
+    if type_str.startswith("enum(") and type_str.endswith(")"):
+        enum_values = _extract_enum_values(type_str)
+        return True, False, enum_values
+    elif type_str.startswith("multi_enum(") and type_str.endswith(")"):
+        enum_values = _extract_enum_values(type_str)
+        return True, True, enum_values
+    
+    return False, False, []
+
+
+def _parse_array_type(type_str: str) -> tuple:
+    """
+    Parse array type specification like 'list(str)'.
+    
+    Args:
+        type_str: String representation of the type
+        
+    Returns:
+        Tuple[bool, str]: (is_array, base_type_str)
+    """
+    type_str = type_str.strip().lower()
+    
+    # Check if this is an array type specification
+    if type_str.startswith("list(") and type_str.endswith(")"):
+        # Extract the base type from list(base_type)
+        base_type = type_str[5:-1].strip()
+        return True, base_type
+    
+    return False, type_str
 
  
 def validate_questions(questions: Dict[str, Dict[str, Any]]) -> bool:

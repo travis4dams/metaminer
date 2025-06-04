@@ -1,0 +1,8 @@
+question,field_name,data_type,default_value
+"What is the document sentiment?",sentiment,"enum(dovish,neutral,hawkish)",neutral
+"What is the document title?",title,str,"Untitled Document"
+"How many pages does it have?",page_count,int,1
+"Is it published?",is_published,bool,false
+"What is the confidence score?",confidence,float,0.5
+"When was it created?",created_date,date,"2024-01-01"
+"What topics are covered?",topics,"multi_enum(finance,hr,marketing,operations)"

@@ -82,7 +82,7 @@ def _create_datetime_validator(field_name: str):
 def build_schema_from_questions(questions: Dict[str, Dict[str, Any]], 
                                schema_name: str = "DocumentSchema") -> Type[BaseModel]:
     """
-    Build a dynamic Pydantic model from questions dictionary with flexible date parsing.
+    Build a dynamic Pydantic model from questions dictionary with flexible date parsing and default values.
     
     Args:
         questions: Dictionary of questions with type information
@@ -97,9 +97,17 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
         field_type_str = question_data.get("type", "str")
         field_description = question_data.get("question", "")
         output_name = question_data.get("output_name", field_name)
+        default_value = question_data.get("default", None)
         
         # Check if this is an array type
         is_array, base_type_str = _parse_array_type(field_type_str)
+        
+        # Create Field with default value if specified, otherwise use None
+        field_kwargs = {"description": field_description}
+        if default_value is not None:
+            field_kwargs["default"] = default_value
+        else:
+            field_kwargs["default"] = None
         
         if base_type_str == "date":
             # Create annotated type with validator
@@ -108,7 +116,7 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
                 annotated_type = Annotated[Optional[List[date]], BeforeValidator(lambda v: [date_validator(item) if item is not None else None for item in (v or [])])]
             else:
                 annotated_type = Annotated[Optional[date], BeforeValidator(date_validator)]
-            fields[output_name] = (annotated_type, Field(description=field_description))
+            fields[output_name] = (annotated_type, Field(**field_kwargs))
             
         elif base_type_str == "datetime":
             # Create annotated type with validator
@@ -117,11 +125,18 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
                 annotated_type = Annotated[Optional[List[datetime]], BeforeValidator(lambda v: [datetime_validator(item) if item is not None else None for item in (v or [])])]
             else:
                 annotated_type = Annotated[Optional[datetime], BeforeValidator(datetime_validator)]
-            fields[output_name] = (annotated_type, Field(description=field_description))
+            fields[output_name] = (annotated_type, Field(**field_kwargs))
             
         else:
-            field_type = _get_python_type(field_type_str)
-            fields[output_name] = (Optional[field_type], Field(description=field_description))
+            field_type = _get_python_type(field_type_str, output_name)
+            # Check if this is an enum type - if so, it's already Optional
+            is_enum, _, _ = _parse_enum_type(field_type_str)
+            if is_enum:
+                # Enum types are already Optional due to the validator
+                fields[output_name] = (field_type, Field(**field_kwargs))
+            else:
+                # Make all non-enum fields Optional
+                fields[output_name] = (Optional[field_type], Field(**field_kwargs))
     
     # Create the dynamic model
     return create_model(schema_name, **fields)
@@ -170,12 +185,13 @@ def _parse_enum_type(type_str: str) -> Tuple[bool, bool, List[str]]:
     return False, False, []
 
 
-def _get_python_type(type_str: str) -> Type:
+def _get_python_type(type_str: str, field_name: str = None) -> Type:
     """
-    Convert string type to Python type.
+    Convert string type to Python type with flexible enum handling.
     
     Args:
         type_str: String representation of the type
+        field_name: Field name for creating custom validators
         
     Returns:
         Type: Corresponding Python type
@@ -184,6 +200,36 @@ def _get_python_type(type_str: str) -> Type:
     # Check if this is an enum type first
     is_enum, is_multi, enum_values = _parse_enum_type(type_str)
     if is_enum:
+        # Create a flexible enum validator that handles invalid values
+        def create_enum_validator(valid_values: List[str], is_multi_enum: bool, field_name: str):
+            def validate_enum(v):
+                if v is None:
+                    return None
+                
+                if is_multi_enum:
+                    # Multi-enum: expect a list
+                    if not isinstance(v, list):
+                        return None  # Invalid format, return None
+                    
+                    result = []
+                    for item in v:
+                        if item in valid_values:
+                            result.append(item)
+                        # Skip invalid items, don't add them to result
+                    return result if result else None
+                else:
+                    # Single enum: expect a single value
+                    if v in valid_values:
+                        return v
+                    else:
+                        # Invalid enum value, return None
+                        return None
+            
+            return validate_enum
+        
+        # Create the validator
+        enum_validator = create_enum_validator(enum_values, is_multi, field_name or "unknown")
+        
         if len(enum_values) == 1:
             # Single value enum - use Literal with one value
             literal_type = Literal[enum_values[0]]
@@ -194,11 +240,11 @@ def _get_python_type(type_str: str) -> Type:
             literal_type = eval(f"Literal[{literal_args}]")
         
         if is_multi:
-            # Multi-enum: List of Literal values
-            return List[literal_type]
+            # Multi-enum: Optional List of Literal values with validator
+            return Annotated[Optional[List[literal_type]], BeforeValidator(enum_validator)]
         else:
-            # Single enum: Just the Literal type
-            return literal_type
+            # Single enum: Optional Literal type with validator
+            return Annotated[Optional[literal_type], BeforeValidator(enum_validator)]
     
     # Check if this is an array type
     is_array, base_type_str = _parse_array_type(type_str)
