@@ -61,21 +61,34 @@ class TestEnumDefaultValues:
 "Is it published?",published,bool,false
 '''
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write(csv_content)
-            f.flush()
+        # Use delete=False and manually handle cleanup for Windows compatibility
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        try:
+            temp_file.write(csv_content)
+            temp_file.flush()
+            temp_file.close()  # Explicitly close the file before reading
             
+            questions = parse_questions_from_file(temp_file.name)
+            
+            # Check that defaults were parsed and validated correctly
+            assert questions["sentiment"]["default"] == "neutral"
+            assert questions["title"]["default"] == "Untitled Document"
+            assert questions["page_count"]["default"] == 1
+            assert questions["published"]["default"] is False
+            
+        finally:
+            # Clean up the temporary file
             try:
-                questions = parse_questions_from_file(f.name)
-                
-                # Check that defaults were parsed and validated correctly
-                assert questions["sentiment"]["default"] == "neutral"
-                assert questions["title"]["default"] == "Untitled Document"
-                assert questions["page_count"]["default"] == 1
-                assert questions["published"]["default"] is False
-                
-            finally:
-                os.unlink(f.name)
+                os.unlink(temp_file.name)
+            except (OSError, PermissionError):
+                # On Windows, sometimes the file is still locked
+                # Try again after a brief moment or ignore if it fails
+                import time
+                time.sleep(0.1)
+                try:
+                    os.unlink(temp_file.name)
+                except (OSError, PermissionError):
+                    pass  # Ignore cleanup failures in tests
     
     def test_schema_with_enum_defaults(self):
         """Test schema building with enum defaults."""
