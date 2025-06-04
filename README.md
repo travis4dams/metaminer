@@ -43,8 +43,11 @@ metaminer questions.txt documents/ --output results.csv
 # JSON output format
 metaminer questions.txt documents/ --format json --output results.json
 
-# Custom API endpoint
-metaminer questions.txt documents/ --base-url http://localhost:8000/api/v1
+# Custom API endpoint and model
+metaminer questions.txt documents/ --base-url http://localhost:8000/api/v1 --model gpt-4
+
+# Use specific AI model
+metaminer questions.txt documents/ --model gpt-4
 
 # Show normalized question structure with inferred types
 metaminer questions.txt --show-questions --output questions_analysis.csv
@@ -52,8 +55,8 @@ metaminer questions.txt --show-questions --output questions_analysis.csv
 # Verbose output for debugging
 metaminer questions.txt documents/ --verbose
 
-# Custom API key
-metaminer questions.txt documents/ --api-key your-api-key
+# Custom API key and model
+metaminer questions.txt documents/ --api-key your-api-key --model gpt-4
 ```
 
 ### Python Module
@@ -192,14 +195,24 @@ metaminer questions.txt documents/ --base-url http://your-api-server.com/api/v1
 ```python
 from metaminer import Inquiry, Config
 
-# Using configuration
-config = Config()
-inquiry = Inquiry.from_file("questions.txt", base_url="http://your-api-server.com/api/v1")
+# Create Config with explicit parameters
+config = Config(
+    model="gpt-4",
+    base_url="https://api.openai.com/v1",
+    api_key="your-api-key"
+)
+inquiry = Inquiry.from_file("questions.txt", config=config)
 
-# Or set environment variables before creating Inquiry
+# Or use individual parameters
+config = Config(model="gpt-4")
+inquiry = Inquiry.from_file("questions.txt", config=config)
+
+# Or set environment variables before creating Config
 import os
 os.environ["METAMINER_BASE_URL"] = "http://your-api-server.com/api/v1"
-inquiry = Inquiry.from_file("questions.txt")
+os.environ["METAMINER_MODEL"] = "gpt-4"
+config = Config()  # Will use environment variables
+inquiry = Inquiry.from_file("questions.txt", config=config)
 ```
 
 ### Configuration Defaults
