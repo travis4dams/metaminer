@@ -24,7 +24,15 @@ class Config:
     MAX_FILE_SIZE_MB = 50
     SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.odt', '.rtf', '.txt', '.md', '.html', '.epub', '.tex']
     
-    def __init__(self, model: Optional[str] = None, base_url: Optional[str] = None, api_key: Optional[str] = None):
+    # Concurrency Configuration
+    DEFAULT_MAX_CONCURRENT_REQUESTS = 3
+    DEFAULT_REQUESTS_PER_MINUTE = 60
+    DEFAULT_BATCH_SIZE = 100
+    DEFAULT_ENABLE_PROGRESS_BAR = True
+    
+    def __init__(self, model: Optional[str] = None, base_url: Optional[str] = None, api_key: Optional[str] = None,
+                 max_concurrent_requests: Optional[int] = None, requests_per_minute: Optional[int] = None,
+                 batch_size: Optional[int] = None, enable_progress_bar: Optional[bool] = None):
         # Priority: explicit args → environment → defaults
         self.api_key = api_key or self._get_api_key()
         self.base_url = base_url or self._get_base_url()
@@ -32,6 +40,13 @@ class Config:
         self.timeout = self._get_timeout()
         self.max_retries = self._get_max_retries()
         self.log_level = self._get_log_level()
+        
+        # Concurrency settings
+        self.max_concurrent_requests = max_concurrent_requests if max_concurrent_requests is not None else self._get_max_concurrent_requests()
+        self.requests_per_minute = requests_per_minute if requests_per_minute is not None else self._get_requests_per_minute()
+        self.batch_size = batch_size if batch_size is not None else self._get_batch_size()
+        self.enable_progress_bar = enable_progress_bar if enable_progress_bar is not None else self._get_enable_progress_bar()
+        
         # Make these instance attributes so they can be modified in tests
         self.MAX_FILE_SIZE_MB = self.MAX_FILE_SIZE_MB
         self.SUPPORTED_EXTENSIONS = self.SUPPORTED_EXTENSIONS
@@ -66,6 +81,32 @@ class Config:
         """Get log level from environment or use default."""
         return os.environ.get("METAMINER_LOG_LEVEL", self.DEFAULT_LOG_LEVEL)
     
+    def _get_max_concurrent_requests(self) -> int:
+        """Get max concurrent requests from environment or use default."""
+        try:
+            return int(os.environ.get("METAMINER_MAX_CONCURRENT_REQUESTS", self.DEFAULT_MAX_CONCURRENT_REQUESTS))
+        except ValueError:
+            return self.DEFAULT_MAX_CONCURRENT_REQUESTS
+    
+    def _get_requests_per_minute(self) -> int:
+        """Get requests per minute from environment or use default."""
+        try:
+            return int(os.environ.get("METAMINER_REQUESTS_PER_MINUTE", self.DEFAULT_REQUESTS_PER_MINUTE))
+        except ValueError:
+            return self.DEFAULT_REQUESTS_PER_MINUTE
+    
+    def _get_batch_size(self) -> int:
+        """Get batch size from environment or use default."""
+        try:
+            return int(os.environ.get("METAMINER_BATCH_SIZE", self.DEFAULT_BATCH_SIZE))
+        except ValueError:
+            return self.DEFAULT_BATCH_SIZE
+    
+    def _get_enable_progress_bar(self) -> bool:
+        """Get enable progress bar from environment or use default."""
+        env_val = os.environ.get("METAMINER_ENABLE_PROGRESS_BAR", str(self.DEFAULT_ENABLE_PROGRESS_BAR))
+        return env_val.lower() in ('true', '1', 'yes', 'on')
+    
     def validate(self) -> None:
         """Validate configuration settings."""
         errors = []
@@ -82,6 +123,16 @@ class Config:
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
         if self.log_level.upper() not in valid_levels:
             errors.append(f"Invalid log level: {self.log_level}. Must be one of: {valid_levels}")
+        
+        # Validate concurrency settings
+        if self.max_concurrent_requests <= 0:
+            errors.append(f"Max concurrent requests must be positive, got: {self.max_concurrent_requests}")
+        
+        if self.requests_per_minute <= 0:
+            errors.append(f"Requests per minute must be positive, got: {self.requests_per_minute}")
+        
+        if self.batch_size <= 0:
+            errors.append(f"Batch size must be positive, got: {self.batch_size}")
         
         if errors:
             raise ValueError("Configuration validation failed:\n" + "\n".join(errors))

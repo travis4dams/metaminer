@@ -1,11 +1,15 @@
 from pydantic import BaseModel
-from typing import Any, Dict, List, Union, Type, Optional
+from typing import Any, Dict, List, Union, Type, Optional, Iterable
 import openai
 import pandas as pd
 import json
 import time
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from collections import deque
+from functools import wraps
 
 from .document_reader import extract_text, extract_text_from_directory
 from .question_parser import parse_questions_from_file, validate_questions
@@ -17,6 +21,47 @@ from .schema_builder import (
 )
 from .config import Config, setup_logging, validate_file_path, validate_questions as validate_questions_config
 from .datatype_inferrer import DataTypeInferrer
+
+
+class RateLimiter:
+    """Token bucket rate limiter for API calls."""
+    
+    def __init__(self, requests_per_minute: int):
+        self.requests_per_minute = requests_per_minute
+        self.tokens = requests_per_minute
+        self.last_update = time.time()
+        self.lock = threading.Lock()
+    
+    def acquire(self, timeout: float = None) -> bool:
+        """Acquire a token for making a request.
+        
+        Args:
+            timeout: Maximum time to wait for a token (None = wait indefinitely)
+            
+        Returns:
+            bool: True if token acquired, False if timeout
+        """
+        start_time = time.time()
+        
+        while True:
+            with self.lock:
+                now = time.time()
+                # Add tokens based on elapsed time
+                elapsed = now - self.last_update
+                self.tokens = min(self.requests_per_minute, 
+                                self.tokens + elapsed * (self.requests_per_minute / 60.0))
+                self.last_update = now
+                
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    return True
+            
+            # Check timeout
+            if timeout is not None and (time.time() - start_time) >= timeout:
+                return False
+            
+            # Wait a bit before trying again
+            time.sleep(0.1)
 
 class Inquiry(object):
     def __init__(self, questions: Union[str, list, dict, None] = None, 
@@ -244,16 +289,19 @@ class Inquiry(object):
         # If we get here, all retries failed
         raise RuntimeError(f"Failed to call OpenAI API after {self.config.max_retries + 1} attempts. Last error: {last_exception}")
     
-    def process_text(self, text: Union[str, List[str]], metadata: Union[Dict[str, Any], List[Dict[str, Any]], None] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+    def process_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Process text content directly and extract information.
+        Process a single text string and extract information.
+        
+        This method is optimized for single text processing and works seamlessly with pandas apply:
+        df['results'] = df['document_text'].apply(inquiry.process_text)
         
         Args:
-            text: Text content to process (single string or list of strings)
-            metadata: Optional metadata to include in results (dict for single text, list of dicts for multiple texts)
+            text: Text content to process (single string only)
+            metadata: Optional metadata to include in result
             
         Returns:
-            Dict[str, Any] or List[Dict[str, Any]]: Extracted information
+            Dict[str, Any]: Extracted information
             
         Raises:
             ValueError: If no questions defined or invalid input
@@ -262,40 +310,61 @@ class Inquiry(object):
         if not self.questions:
             raise ValueError("No questions defined")
         
-        # Handle single text input
-        if isinstance(text, str):
-            return self._process_single_text(text, metadata or {})
+        if not isinstance(text, str):
+            raise ValueError("process_text() only accepts single strings. Use process_texts() for lists/iterables.")
         
-        # Handle multiple text inputs
-        elif isinstance(text, list):
-            if not all(isinstance(t, str) for t in text):
-                raise ValueError("All items in text list must be strings")
-            
-            # Ensure metadata is a list with same length as text
-            if metadata is None:
-                metadata = [{}] * len(text)
-            elif isinstance(metadata, dict):
-                metadata = [metadata] * len(text)
-            elif isinstance(metadata, list):
-                if len(metadata) != len(text):
-                    raise ValueError("Metadata list must have same length as text list")
-            else:
-                raise ValueError("Metadata must be dict, list of dicts, or None")
-            
-            results = []
-            for i, (single_text, single_metadata) in enumerate(zip(text, metadata)):
-                try:
-                    result = self._process_single_text(single_text, single_metadata)
-                    results.append(result)
-                except Exception as e:
-                    self.logger.error(f"Failed to process text item {i}: {e}")
-                    # Continue processing other texts
-                    continue
-            
-            return results
+        return self._process_single_text(text, metadata or {})
+    
+    def process_texts(self, texts: Union[List[str], pd.Series, Iterable[str]], 
+                     metadata: Union[Dict[str, Any], List[Dict[str, Any]], None] = None,
+                     concurrent: bool = True) -> List[Dict[str, Any]]:
+        """
+        Process multiple texts with concurrent processing and rate limiting.
         
+        This method is optimized for batch processing of multiple texts:
+        results = inquiry.process_texts(df['document_text'].tolist())
+        
+        Args:
+            texts: Collection of text strings to process (list, pandas Series, or iterable)
+            metadata: Optional metadata to include in results (dict for all, or list of dicts)
+            concurrent: Whether to use concurrent processing (default: True)
+            
+        Returns:
+            List[Dict[str, Any]]: List of extraction results
+            
+        Raises:
+            ValueError: If no questions defined or invalid input
+            RuntimeError: If processing fails
+        """
+        if not self.questions:
+            raise ValueError("No questions defined")
+        
+        # Convert pandas Series to list
+        if isinstance(texts, pd.Series):
+            texts = texts.tolist()
+        # Convert other iterables to list
+        elif not isinstance(texts, list):
+            texts = list(texts)
+        
+        if not all(isinstance(t, str) for t in texts):
+            raise ValueError("All items must be strings")
+        
+        # Ensure metadata is properly formatted
+        if metadata is None:
+            metadata = [{}] * len(texts)
+        elif isinstance(metadata, dict):
+            metadata = [metadata] * len(texts)
+        elif isinstance(metadata, list):
+            if len(metadata) != len(texts):
+                raise ValueError("Metadata list must have same length as texts list")
         else:
-            raise ValueError("Text must be a string or list of strings")
+            raise ValueError("Metadata must be dict, list of dicts, or None")
+        
+        # Use concurrent processing for multiple texts if enabled and beneficial
+        if concurrent and len(texts) > 1:
+            return self._process_multiple_texts_concurrent(texts, metadata)
+        else:
+            return self._process_multiple_texts_sequential(texts, metadata)
     
     def _process_single_text(self, text: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -335,6 +404,123 @@ class Inquiry(object):
         except Exception as e:
             self.logger.error(f"Failed to process text: {e}")
             raise RuntimeError(f"Failed to process text: {e}")
+    
+    def _process_multiple_texts_sequential(self, texts: List[str], metadata_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Process multiple texts sequentially (original behavior).
+        
+        Args:
+            texts: List of text strings to process
+            metadata_list: List of metadata dictionaries
+            
+        Returns:
+            List[Dict[str, Any]]: List of extraction results
+        """
+        results = []
+        for i, (text, metadata) in enumerate(zip(texts, metadata_list)):
+            try:
+                result = self._process_single_text(text, metadata)
+                results.append(result)
+            except Exception as e:
+                self.logger.error(f"Failed to process text item {i}: {e}")
+                # Continue processing other texts
+                continue
+        return results
+    
+    def _process_multiple_texts_concurrent(self, texts: List[str], metadata_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Process multiple texts concurrently with rate limiting.
+        
+        Args:
+            texts: List of text strings to process
+            metadata_list: List of metadata dictionaries
+            
+        Returns:
+            List[Dict[str, Any]]: List of extraction results
+        """
+        if len(texts) <= 1:
+            return self._process_multiple_texts_sequential(texts, metadata_list)
+        
+        self.logger.info(f"Processing {len(texts)} texts concurrently with {self.config.max_concurrent_requests} workers")
+        
+        # Create rate limiter
+        rate_limiter = RateLimiter(self.config.requests_per_minute)
+        
+        # Process in batches to manage memory
+        batch_size = self.config.batch_size
+        all_results = []
+        
+        for batch_start in range(0, len(texts), batch_size):
+            batch_end = min(batch_start + batch_size, len(texts))
+            batch_texts = texts[batch_start:batch_end]
+            batch_metadata = metadata_list[batch_start:batch_end]
+            
+            self.logger.debug(f"Processing batch {batch_start//batch_size + 1}: items {batch_start}-{batch_end-1}")
+            
+            batch_results = self._process_batch_concurrent(batch_texts, batch_metadata, rate_limiter)
+            all_results.extend(batch_results)
+        
+        self.logger.info(f"Completed concurrent processing of {len(texts)} texts, got {len(all_results)} results")
+        return all_results
+    
+    def _process_batch_concurrent(self, texts: List[str], metadata_list: List[Dict[str, Any]], 
+                                 rate_limiter: RateLimiter) -> List[Dict[str, Any]]:
+        """
+        Process a batch of texts concurrently.
+        
+        Args:
+            texts: List of text strings to process
+            metadata_list: List of metadata dictionaries
+            rate_limiter: Rate limiter instance
+            
+        Returns:
+            List[Dict[str, Any]]: List of extraction results
+        """
+        results = [None] * len(texts)  # Preserve order
+        
+        def process_single_with_rate_limit(index: int, text: str, metadata: Dict[str, Any]) -> tuple:
+            """Process a single text with rate limiting."""
+            try:
+                # Acquire rate limit token
+                if not rate_limiter.acquire(timeout=self.config.timeout):
+                    raise RuntimeError(f"Rate limit timeout for item {index}")
+                
+                result = self._process_single_text(text, metadata)
+                return index, result, None
+            except Exception as e:
+                self.logger.error(f"Failed to process text item {index}: {e}")
+                return index, None, e
+        
+        # Use ThreadPoolExecutor for concurrent processing
+        max_workers = min(self.config.max_concurrent_requests, len(texts))
+        
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_index = {
+                    executor.submit(process_single_with_rate_limit, i, text, metadata): i
+                    for i, (text, metadata) in enumerate(zip(texts, metadata_list))
+                }
+                
+                # Collect results as they complete
+                for future in as_completed(future_to_index):
+                    try:
+                        index, result, error = future.result()
+                        if result is not None:
+                            results[index] = result
+                        # Note: errors are already logged in the worker function
+                    except Exception as e:
+                        original_index = future_to_index[future]
+                        self.logger.error(f"Unexpected error processing item {original_index}: {e}")
+        
+        except Exception as e:
+            self.logger.error(f"Error in concurrent processing: {e}")
+            # Fall back to sequential processing
+            self.logger.info("Falling back to sequential processing")
+            return self._process_multiple_texts_sequential(texts, metadata_list)
+        
+        # Filter out None results (failed items)
+        return [result for result in results if result is not None]
     
     def process_document(self, document_path: str) -> Dict[str, Any]:
         """
@@ -444,7 +630,7 @@ class Inquiry(object):
             return pd.DataFrame()
         
         # Process all texts using the new text processing method
-        results = self.process_text(texts, metadata_list)
+        results = self.process_texts(texts, metadata_list)
         
         return pd.DataFrame(results)
 

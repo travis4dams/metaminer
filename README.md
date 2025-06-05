@@ -82,9 +82,20 @@ result = inquiry.process_document("document.pdf")
 inquiry = Inquiry(questions=["Who is the author?", "What is the main topic?"])
 result = inquiry.process_text("This is a research paper by Dr. Smith about machine learning.")
 
-# Process multiple texts
-texts = ["Document 1 content...", "Document 2 content..."]
-results = inquiry.process_text(texts)
+# Process multiple texts with concurrent processing
+texts = ["Document 1 content...", "Document 2 content...", "Document 3 content..."]
+results = inquiry.process_texts(texts)  # Uses concurrent processing by default
+
+# Pandas integration for seamless data processing
+import pandas as pd
+df = pd.DataFrame({'text': ["Doc 1 content", "Doc 2 content", "Doc 3 content"]})
+
+# Method 1: Using apply
+df['results'] = df['text'].apply(inquiry.process_text)
+
+# Method 2: Using vectorized processing (better performance for large datasets)
+results = inquiry.process_texts(df['text'].tolist())
+df['results'] = results
 
 # Extract text directly
 text = extract_text("document.pdf")
@@ -163,6 +174,38 @@ Thanks to pandoc integration and PyMuPDF, metaminer supports:
 - HTML (.html)
 - EPUB (.epub)
 - LaTeX (.tex)
+
+## Concurrent Processing & Performance
+
+Metaminer includes built-in concurrent processing capabilities for efficient batch processing of multiple texts while respecting API rate limits and system resources.
+
+
+### Performance Configuration
+
+```python
+# For high-throughput processing
+config = Config(
+    max_concurrent_requests=10,  # More workers for faster processing
+    requests_per_minute=300,     # Higher rate limit if your API supports it
+    batch_size=100              # Larger batches for better memory efficiency
+)
+
+# For rate-limited APIs
+config = Config(
+    max_concurrent_requests=2,   # Fewer workers to stay under limits
+    requests_per_minute=60,      # Conservative rate limit
+    batch_size=20               # Smaller batches to reduce memory usage
+)
+```
+
+### Environment Variables
+
+```bash
+# Concurrent processing settings
+export METAMINER_MAX_CONCURRENT_REQUESTS=5
+export METAMINER_REQUESTS_PER_MINUTE=120
+export METAMINER_BATCH_SIZE=50
+```
 
 ## Configuration
 
