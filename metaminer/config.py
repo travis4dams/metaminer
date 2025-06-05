@@ -24,10 +24,11 @@ class Config:
     MAX_FILE_SIZE_MB = 50
     SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.odt', '.rtf', '.txt', '.md', '.html', '.epub', '.tex']
     
-    def __init__(self):
-        self.api_key = self._get_api_key()
-        self.base_url = self._get_base_url()
-        self.model = self._get_model()
+    def __init__(self, model: Optional[str] = None, base_url: Optional[str] = None, api_key: Optional[str] = None):
+        # Priority: explicit args → environment → defaults
+        self.api_key = api_key or self._get_api_key()
+        self.base_url = base_url or self._get_base_url()
+        self.model = model or self._get_model()
         self.timeout = self._get_timeout()
         self.max_retries = self._get_max_retries()
         self.log_level = self._get_log_level()

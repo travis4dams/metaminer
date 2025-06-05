@@ -23,6 +23,77 @@ class TestConfig:
         assert config.max_retries == 3
         assert config.log_level == "INFO"
     
+    @patch.dict(os.environ, {}, clear=True)
+    def test_config_with_explicit_model(self):
+        """Test Config with explicit model parameter."""
+        config = Config(model="gpt-4")
+        
+        assert config.model == "gpt-4"
+        assert config.base_url == "http://localhost:5001/api/v1"  # Should use default
+        assert config.api_key is None  # Should use default
+    
+    @patch.dict(os.environ, {}, clear=True)
+    def test_config_with_explicit_base_url(self):
+        """Test Config with explicit base_url parameter."""
+        config = Config(base_url="https://api.openai.com/v1")
+        
+        assert config.base_url == "https://api.openai.com/v1"
+        assert config.model == "gpt-3.5-turbo"  # Should use default
+        assert config.api_key is None  # Should use default
+    
+    def test_config_with_explicit_api_key(self):
+        """Test Config with explicit api_key parameter."""
+        config = Config(api_key="test-key-123")
+        
+        assert config.api_key == "test-key-123"
+        assert config.model == "gpt-3.5-turbo"  # Should use default
+        assert config.base_url == "http://localhost:5001/api/v1"  # Should use default
+    
+    def test_config_with_all_explicit_params(self):
+        """Test Config with all explicit parameters."""
+        config = Config(
+            model="gpt-4",
+            base_url="https://api.openai.com/v1",
+            api_key="test-key-123"
+        )
+        
+        assert config.model == "gpt-4"
+        assert config.base_url == "https://api.openai.com/v1"
+        assert config.api_key == "test-key-123"
+    
+    @patch.dict(os.environ, {
+        'METAMINER_MODEL': 'gpt-4-env',
+        'METAMINER_BASE_URL': 'http://env.example.com/api',
+        'OPENAI_API_KEY': 'env-key-123'
+    })
+    def test_explicit_params_override_environment(self):
+        """Test that explicit parameters override environment variables."""
+        config = Config(
+            model="gpt-4-explicit",
+            base_url="https://explicit.example.com/api",
+            api_key="explicit-key-123"
+        )
+        
+        # Explicit parameters should override environment
+        assert config.model == "gpt-4-explicit"
+        assert config.base_url == "https://explicit.example.com/api"
+        assert config.api_key == "explicit-key-123"
+    
+    @patch.dict(os.environ, {
+        'METAMINER_MODEL': 'gpt-4-env',
+        'METAMINER_BASE_URL': 'http://env.example.com/api',
+        'OPENAI_API_KEY': 'env-key-123'
+    })
+    def test_partial_explicit_params_with_environment_fallback(self):
+        """Test that only specified explicit parameters override environment."""
+        config = Config(model="gpt-4-explicit")
+        
+        # Explicit model should override environment
+        assert config.model == "gpt-4-explicit"
+        # Other values should come from environment
+        assert config.base_url == "http://env.example.com/api"
+        assert config.api_key == "env-key-123"
+    
     @patch.dict(os.environ, {
         'OPENAI_API_KEY': 'test-key',
         'METAMINER_BASE_URL': 'http://test.com/api',

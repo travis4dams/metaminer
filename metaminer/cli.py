@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from .inquiry import Inquiry
+from .config import Config
 
 
 def main():
@@ -46,8 +47,12 @@ Examples:
     )
     
     parser.add_argument(
+        "--model", "-m",
+        help="AI model to use (default: gpt-3.5-turbo)"
+    )
+    
+    parser.add_argument(
         "--base-url",
-        default="http://localhost:5001/api/v1",
         help="OpenAI API base URL (default: http://localhost:5001/api/v1)"
     )
     
@@ -80,15 +85,21 @@ Examples:
         sys.exit(1)
     
     try:
-        # Set up API key if provided
-        if args.api_key:
-            os.environ["OPENAI_API_KEY"] = args.api_key
+        # Create configuration with CLI arguments
+        # None values will fall back to environment variables or defaults
+        config = Config(
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key
+        )
         
         # Create Inquiry instance
         if args.verbose:
             print(f"Loading questions from: {args.questions_file}", file=sys.stderr)
+            print(f"Using model: {config.model}", file=sys.stderr)
+            print(f"Using base URL: {config.base_url}", file=sys.stderr)
         
-        inquiry = Inquiry.from_file(args.questions_file, base_url=args.base_url)
+        inquiry = Inquiry.from_file(args.questions_file, config=config)
         
         # If show-questions flag is set, output the normalized questions and exit
         if args.show_questions:
