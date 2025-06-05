@@ -115,7 +115,7 @@ class TestTextProcessing:
             "Second paper by Author Two"
         ]
         
-        results = inquiry.process_text(texts)
+        results = inquiry.process_texts(texts)
         
         assert isinstance(results, list)
         assert len(results) == 2
@@ -153,7 +153,7 @@ class TestTextProcessing:
             {"source": "journal_b", "year": 2024}
         ]
         
-        results = inquiry.process_text(texts, metadata)
+        results = inquiry.process_texts(texts, metadata)
         
         assert isinstance(results, list)
         assert len(results) == 2
@@ -192,7 +192,7 @@ class TestTextProcessing:
         
         metadata = {"conference": "AI Conference 2024"}
         
-        results = inquiry.process_text(texts, metadata)
+        results = inquiry.process_texts(texts, metadata)
         
         assert isinstance(results, list)
         assert len(results) == 2
@@ -235,7 +235,7 @@ class TestTextProcessing:
             config=test_config
         )
         
-        with pytest.raises(ValueError, match="Text must be a string or list of strings"):
+        with pytest.raises(ValueError, match=r"process_text\(\) only accepts single strings\. Use process_texts\(\) for lists/iterables\."):
             inquiry.process_text(123)  # Invalid type
     
     def test_process_text_list_with_non_string_raises_error(self, mock_openai_client, test_config):
@@ -248,7 +248,7 @@ class TestTextProcessing:
             config=test_config
         )
         
-        with pytest.raises(ValueError, match="All items in text list must be strings"):
+        with pytest.raises(ValueError, match=r"process_text\(\) only accepts single strings\. Use process_texts\(\) for lists/iterables\."):
             inquiry.process_text(["Valid text", 123, "Another valid text"])
     
     def test_process_text_metadata_length_mismatch_raises_error(self, mock_openai_client, test_config):
@@ -264,7 +264,7 @@ class TestTextProcessing:
         texts = ["Text one", "Text two"]
         metadata = [{"source": "A"}]  # Only one metadata for two texts
         
-        with pytest.raises(ValueError, match="Metadata list must have same length as text list"):
+        with pytest.raises(ValueError, match=r"process_text\(\) only accepts single strings\. Use process_texts\(\) for lists/iterables\."):
             inquiry.process_text(texts, metadata)
     
     def test_process_text_continues_on_individual_failures(self, mock_openai_client, test_config):
@@ -285,7 +285,7 @@ class TestTextProcessing:
         )
         
         texts = ["First text", "Second text"]
-        results = inquiry.process_text(texts)
+        results = inquiry.process_texts(texts)
         
         # Should only have one result (the successful one)
         assert isinstance(results, list)
