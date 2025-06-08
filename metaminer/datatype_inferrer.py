@@ -107,7 +107,6 @@ class DataTypeInferrer:
         """
         # Initialize configuration
         self.config = config or Config()
-        self.config.validate()
         
         # Set up logging
         self.logger = setup_logging(self.config)

@@ -1,142 +1,83 @@
 """
-Configuration management for metaminer.
+Configuration management for metaminer using pydantic-settings.
 """
-import os
 import logging
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings
 
 
-class Config:
-    """Configuration class for metaminer settings."""
+class Config(BaseSettings):
+    """Configuration class for metaminer settings using pydantic-settings."""
     
     # API Configuration
-    DEFAULT_BASE_URL = "http://localhost:5001/api/v1"
-    DEFAULT_MODEL = "gpt-3.5-turbo"
-    DEFAULT_TIMEOUT = 30.0
-    DEFAULT_MAX_RETRIES = 3
+    api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    base_url: str = Field(default="http://localhost:5001/api/v1", alias="METAMINER_BASE_URL")
+    model: str = Field(default="gpt-3.5-turbo", alias="METAMINER_MODEL")
+    timeout: float = Field(default=30.0, alias="METAMINER_TIMEOUT", gt=0)
+    max_retries: int = Field(default=3, alias="METAMINER_MAX_RETRIES", ge=0)
     
     # Logging Configuration
-    DEFAULT_LOG_LEVEL = "INFO"
-    DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_level: str = Field(default="INFO", alias="METAMINER_LOG_LEVEL")
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     # File Processing Configuration
-    MAX_FILE_SIZE_MB = 50
-    SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.odt', '.rtf', '.txt', '.md', '.html', '.epub', '.tex']
+    max_file_size_mb: int = Field(default=50, gt=0)
+    supported_extensions: List[str] = Field(default_factory=lambda: [
+        '.pdf', '.docx', '.doc', '.odt', '.rtf', '.txt', '.md', '.html', '.epub', '.tex'
+    ])
     
     # Concurrency Configuration
-    DEFAULT_MAX_CONCURRENT_REQUESTS = 3
-    DEFAULT_REQUESTS_PER_MINUTE = 60
-    DEFAULT_BATCH_SIZE = 100
-    DEFAULT_ENABLE_PROGRESS_BAR = True
+    max_concurrent_requests: int = Field(default=3, alias="METAMINER_MAX_CONCURRENT_REQUESTS", gt=0)
+    requests_per_minute: int = Field(default=60, alias="METAMINER_REQUESTS_PER_MINUTE", gt=0)
+    batch_size: int = Field(default=100, alias="METAMINER_BATCH_SIZE", gt=0)
+    enable_progress_bar: bool = Field(default=True, alias="METAMINER_ENABLE_PROGRESS_BAR")
     
-    def __init__(self, model: Optional[str] = None, base_url: Optional[str] = None, api_key: Optional[str] = None,
-                 max_concurrent_requests: Optional[int] = None, requests_per_minute: Optional[int] = None,
-                 batch_size: Optional[int] = None, enable_progress_bar: Optional[bool] = None):
-        # Priority: explicit args → environment → defaults
-        self.api_key = api_key or self._get_api_key()
-        self.base_url = base_url or self._get_base_url()
-        self.model = model or self._get_model()
-        self.timeout = self._get_timeout()
-        self.max_retries = self._get_max_retries()
-        self.log_level = self._get_log_level()
-        
-        # Concurrency settings
-        self.max_concurrent_requests = max_concurrent_requests if max_concurrent_requests is not None else self._get_max_concurrent_requests()
-        self.requests_per_minute = requests_per_minute if requests_per_minute is not None else self._get_requests_per_minute()
-        self.batch_size = batch_size if batch_size is not None else self._get_batch_size()
-        self.enable_progress_bar = enable_progress_bar if enable_progress_bar is not None else self._get_enable_progress_bar()
-        
-        # Make these instance attributes so they can be modified in tests
-        self.MAX_FILE_SIZE_MB = self.MAX_FILE_SIZE_MB
-        self.SUPPORTED_EXTENSIONS = self.SUPPORTED_EXTENSIONS
-        
-    def _get_api_key(self) -> Optional[str]:
-        """Get API key from environment or return None."""
-        return os.environ.get("OPENAI_API_KEY")
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        extra = "ignore"  # Ignore extra environment variables
     
-    def _get_base_url(self) -> str:
-        """Get base URL from environment or use default."""
-        return os.environ.get("METAMINER_BASE_URL", self.DEFAULT_BASE_URL)
-    
-    def _get_model(self) -> str:
-        """Get model name from environment or use default."""
-        return os.environ.get("METAMINER_MODEL", self.DEFAULT_MODEL)
-    
-    def _get_timeout(self) -> float:
-        """Get timeout from environment or use default."""
-        try:
-            return float(os.environ.get("METAMINER_TIMEOUT", self.DEFAULT_TIMEOUT))
-        except ValueError:
-            return self.DEFAULT_TIMEOUT
-    
-    def _get_max_retries(self) -> int:
-        """Get max retries from environment or use default."""
-        try:
-            return int(os.environ.get("METAMINER_MAX_RETRIES", self.DEFAULT_MAX_RETRIES))
-        except ValueError:
-            return self.DEFAULT_MAX_RETRIES
-    
-    def _get_log_level(self) -> str:
-        """Get log level from environment or use default."""
-        return os.environ.get("METAMINER_LOG_LEVEL", self.DEFAULT_LOG_LEVEL)
-    
-    def _get_max_concurrent_requests(self) -> int:
-        """Get max concurrent requests from environment or use default."""
-        try:
-            return int(os.environ.get("METAMINER_MAX_CONCURRENT_REQUESTS", self.DEFAULT_MAX_CONCURRENT_REQUESTS))
-        except ValueError:
-            return self.DEFAULT_MAX_CONCURRENT_REQUESTS
-    
-    def _get_requests_per_minute(self) -> int:
-        """Get requests per minute from environment or use default."""
-        try:
-            return int(os.environ.get("METAMINER_REQUESTS_PER_MINUTE", self.DEFAULT_REQUESTS_PER_MINUTE))
-        except ValueError:
-            return self.DEFAULT_REQUESTS_PER_MINUTE
-    
-    def _get_batch_size(self) -> int:
-        """Get batch size from environment or use default."""
-        try:
-            return int(os.environ.get("METAMINER_BATCH_SIZE", self.DEFAULT_BATCH_SIZE))
-        except ValueError:
-            return self.DEFAULT_BATCH_SIZE
-    
-    def _get_enable_progress_bar(self) -> bool:
-        """Get enable progress bar from environment or use default."""
-        env_val = os.environ.get("METAMINER_ENABLE_PROGRESS_BAR", str(self.DEFAULT_ENABLE_PROGRESS_BAR))
-        return env_val.lower() in ('true', '1', 'yes', 'on')
-    
-    def validate(self) -> None:
-        """Validate configuration settings."""
-        errors = []
-        
-        # Validate timeout
-        if self.timeout <= 0:
-            errors.append(f"Timeout must be positive, got: {self.timeout}")
-        
-        # Validate max_retries
-        if self.max_retries < 0:
-            errors.append(f"Max retries must be non-negative, got: {self.max_retries}")
-        
-        # Validate log level
+    @field_validator('log_level')
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate log level is valid."""
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-        if self.log_level.upper() not in valid_levels:
-            errors.append(f"Invalid log level: {self.log_level}. Must be one of: {valid_levels}")
-        
-        # Validate concurrency settings
-        if self.max_concurrent_requests <= 0:
-            errors.append(f"Max concurrent requests must be positive, got: {self.max_concurrent_requests}")
-        
-        if self.requests_per_minute <= 0:
-            errors.append(f"Requests per minute must be positive, got: {self.requests_per_minute}")
-        
-        if self.batch_size <= 0:
-            errors.append(f"Batch size must be positive, got: {self.batch_size}")
-        
-        if errors:
-            raise ValueError("Configuration validation failed:\n" + "\n".join(errors))
-
+        if v.upper() not in valid_levels:
+            raise ValueError(f"Invalid log level: {v}. Must be one of: {valid_levels}")
+        return v.upper()
+    
+    @field_validator('supported_extensions')
+    @classmethod
+    def validate_extensions(cls, v: List[str]) -> List[str]:
+        """Validate supported extensions format."""
+        for ext in v:
+            if not ext.startswith('.'):
+                raise ValueError(f"Extension must start with '.': {ext}")
+        return v
+    
+    # Legacy properties for backwards compatibility
+    @property
+    def MAX_FILE_SIZE_MB(self) -> int:
+        """Legacy property for backwards compatibility."""
+        return self.max_file_size_mb
+    
+    @MAX_FILE_SIZE_MB.setter
+    def MAX_FILE_SIZE_MB(self, value: int):
+        """Legacy setter for backwards compatibility."""
+        self.max_file_size_mb = value
+    
+    @property
+    def SUPPORTED_EXTENSIONS(self) -> List[str]:
+        """Legacy property for backwards compatibility."""
+        return self.supported_extensions
+    
+    @SUPPORTED_EXTENSIONS.setter
+    def SUPPORTED_EXTENSIONS(self, value: List[str]):
+        """Legacy setter for backwards compatibility."""
+        self.supported_extensions = value
+    
 
 def setup_logging(config: Config) -> logging.Logger:
     """
@@ -166,7 +107,7 @@ def setup_logging(config: Config) -> logging.Logger:
     console_handler.setLevel(log_level)
     
     # Create formatter
-    formatter = logging.Formatter(config.DEFAULT_LOG_FORMAT)
+    formatter = logging.Formatter(config.log_format)
     console_handler.setFormatter(formatter)
     
     # Add handler to logger

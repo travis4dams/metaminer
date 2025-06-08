@@ -3,15 +3,106 @@ Schema builder module for creating dynamic Pydantic models from questions.
 """
 
 from typing import Dict, Any, Type, Optional, List, Tuple, Literal, Union
+from functools import lru_cache
+import hashlib
+import json
 
 try:
     from typing import Annotated
 except ImportError:
     from typing_extensions import Annotated
-from pydantic import BaseModel, Field, field_validator, create_model, BeforeValidator
+from pydantic import BaseModel, Field, field_validator, create_model, BeforeValidator, TypeAdapter
 from dateutil import parser as date_parser
 from datetime import date, datetime
 from .question_parser import _extract_enum_values
+
+
+# Module-level cached validators for better performance
+@lru_cache(maxsize=32)
+def get_date_validator(field_name: str):
+    """Get a cached date validator function."""
+    def validate_date(v):
+        if v is None:
+            return v
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, str):
+            try:
+                parsed = date_parser.parse(v)
+                return parsed.date()
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Could not parse date '{v}' for field {field_name}: {e}")
+        raise ValueError(f"Invalid date format for field {field_name}: {v}")
+    return validate_date
+
+
+@lru_cache(maxsize=32)
+def get_datetime_validator(field_name: str):
+    """Get a cached datetime validator function."""
+    def validate_datetime(v):
+        if v is None or isinstance(v, datetime):
+            return v
+        if isinstance(v, date):
+            return datetime.combine(v, datetime.min.time())
+        if isinstance(v, str):
+            try:
+                return date_parser.parse(v)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Could not parse datetime '{v}' for field {field_name}: {e}")
+        raise ValueError(f"Invalid datetime format for field {field_name}: {v}")
+    return validate_datetime
+
+
+@lru_cache(maxsize=32)
+def get_type_adapter(schema_class: Type[BaseModel]) -> TypeAdapter:
+    """Get a cached TypeAdapter for better performance."""
+    return TypeAdapter(schema_class)
+
+
+def _hash_questions(questions: Dict[str, Dict[str, Any]]) -> str:
+    """Create a hash of questions dictionary for caching."""
+    # Create a consistent string representation for hashing
+    normalized = {}
+    for key, value in questions.items():
+        normalized[key] = {
+            'question': value.get('question', ''),
+            'type': value.get('type', 'str'),
+            'output_name': value.get('output_name', key),
+            'default': value.get('default', None)
+        }
+    
+    questions_str = json.dumps(normalized, sort_keys=True)
+    return hashlib.md5(questions_str.encode()).hexdigest()
+
+
+@lru_cache(maxsize=128)
+def get_cached_schema(questions_hash: str, schema_name: str, questions_json: str) -> Type[BaseModel]:
+    """Get a cached schema or create a new one if not cached."""
+    # Reconstruct questions from JSON for processing
+    questions = json.loads(questions_json)
+    return _create_schema_uncached(questions, schema_name)
+
+
+def create_safe_literal_type(enum_values: List[str]):
+    """Create a Literal type safely without using eval()."""
+    if len(enum_values) == 1:
+        # For single values, create Literal directly
+        value = enum_values[0]
+        return Literal[value]
+    elif len(enum_values) == 2:
+        return Literal[enum_values[0], enum_values[1]]
+    elif len(enum_values) == 3:
+        return Literal[enum_values[0], enum_values[1], enum_values[2]]
+    elif len(enum_values) == 4:
+        return Literal[enum_values[0], enum_values[1], enum_values[2], enum_values[3]]
+    elif len(enum_values) == 5:
+        return Literal[enum_values[0], enum_values[1], enum_values[2], enum_values[3], enum_values[4]]
+    else:
+        # For more than 5 values, use tuple unpacking
+        # This is safer than eval but has a practical limit
+        return Literal[tuple(enum_values)]
 
 
 def create_date_validator(field_name: str, target_type: type):
@@ -44,45 +135,30 @@ def create_date_validator(field_name: str, target_type: type):
     return field_validator(field_name, mode='before')(validator)
 
 
-def _create_date_validator(field_name: str):
-    """Create a date validator function."""
-    def validate_date(v):
-        if v is None:
-            return v
-        if isinstance(v, date) and not isinstance(v, datetime):
-            return v
-        if isinstance(v, datetime):
-            return v.date()
-        if isinstance(v, str):
-            try:
-                parsed = date_parser.parse(v)
-                return parsed.date()
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Could not parse date '{v}' for field {field_name}: {e}")
-        raise ValueError(f"Invalid date format for field {field_name}: {v}")
-    return validate_date
-
-
-def _create_datetime_validator(field_name: str):
-    """Create a datetime validator function."""
-    def validate_datetime(v):
-        if v is None or isinstance(v, datetime):
-            return v
-        if isinstance(v, date):
-            return datetime.combine(v, datetime.min.time())
-        if isinstance(v, str):
-            try:
-                return date_parser.parse(v)
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Could not parse datetime '{v}' for field {field_name}: {e}")
-        raise ValueError(f"Invalid datetime format for field {field_name}: {v}")
-    return validate_datetime
-
-
 def build_schema_from_questions(questions: Dict[str, Dict[str, Any]], 
                                schema_name: str = "DocumentSchema") -> Type[BaseModel]:
     """
     Build a dynamic Pydantic model from questions dictionary with flexible date parsing and default values.
+    Uses caching for better performance when the same questions are used repeatedly.
+    
+    Args:
+        questions: Dictionary of questions with type information
+        schema_name: Name for the generated schema class
+        
+    Returns:
+        Type[BaseModel]: Dynamic Pydantic model class
+    """
+    # Create hash for caching
+    questions_hash = _hash_questions(questions)
+    questions_json = json.dumps(questions, sort_keys=True)
+    
+    # Try to get cached schema
+    return get_cached_schema(questions_hash, schema_name, questions_json)
+
+
+def _create_schema_uncached(questions: Dict[str, Dict[str, Any]], schema_name: str) -> Type[BaseModel]:
+    """
+    Create a schema without caching (used internally by cached function).
     
     Args:
         questions: Dictionary of questions with type information
@@ -110,8 +186,8 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
             field_kwargs["default"] = None
         
         if base_type_str == "date":
-            # Create annotated type with validator
-            date_validator = _create_date_validator(output_name)
+            # Use cached date validator
+            date_validator = get_date_validator(output_name)
             if is_array:
                 annotated_type = Annotated[Optional[List[date]], BeforeValidator(lambda v: [date_validator(item) if item is not None else None for item in (v or [])])]
             else:
@@ -119,8 +195,8 @@ def build_schema_from_questions(questions: Dict[str, Dict[str, Any]],
             fields[output_name] = (annotated_type, Field(**field_kwargs))
             
         elif base_type_str == "datetime":
-            # Create annotated type with validator
-            datetime_validator = _create_datetime_validator(output_name)
+            # Use cached datetime validator
+            datetime_validator = get_datetime_validator(output_name)
             if is_array:
                 annotated_type = Annotated[Optional[List[datetime]], BeforeValidator(lambda v: [datetime_validator(item) if item is not None else None for item in (v or [])])]
             else:
@@ -230,14 +306,8 @@ def _get_python_type(type_str: str, field_name: str = None) -> Type:
         # Create the validator
         enum_validator = create_enum_validator(enum_values, is_multi, field_name or "unknown")
         
-        if len(enum_values) == 1:
-            # Single value enum - use Literal with one value
-            literal_type = Literal[enum_values[0]]
-        else:
-            # Multiple values - create Literal with all values as separate arguments
-            # We need to use eval to create the proper Literal type dynamically
-            literal_args = ', '.join([repr(val) for val in enum_values])
-            literal_type = eval(f"Literal[{literal_args}]")
+        # Use the safe literal type creation function
+        literal_type = create_safe_literal_type(enum_values)
         
         if is_multi:
             # Multi-enum: Optional List of Literal values with validator

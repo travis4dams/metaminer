@@ -17,23 +17,30 @@ from .schema_builder import (
     build_schema_from_questions,
     create_extraction_prompt,
     validate_extraction_result,
-    schema_to_dict
+    schema_to_dict,
+    get_type_adapter
 )
 from .config import Config, setup_logging, validate_file_path, validate_questions as validate_questions_config
 from .datatype_inferrer import DataTypeInferrer
 
 
-class RateLimiter:
-    """Token bucket rate limiter for API calls."""
+class AdaptiveRateLimiter:
+    """Advanced token bucket rate limiter with exponential backoff and burst handling."""
     
-    def __init__(self, requests_per_minute: int):
-        self.requests_per_minute = requests_per_minute
-        self.tokens = requests_per_minute
+    def __init__(self, base_rate: int, burst_capacity: int = None, max_backoff: float = 60.0):
+        self.base_rate = base_rate
+        self.burst_capacity = burst_capacity or base_rate * 2
+        self.max_backoff = max_backoff
+        self.tokens = base_rate
         self.last_update = time.time()
         self.lock = threading.Lock()
-    
+        
+        # Adaptive backoff tracking
+        self.consecutive_failures = 0
+        self.last_failure_time = 0
+        
     def acquire(self, timeout: float = None) -> bool:
-        """Acquire a token for making a request.
+        """Acquire a token for making a request with adaptive backoff.
         
         Args:
             timeout: Maximum time to wait for a token (None = wait indefinitely)
@@ -46,14 +53,23 @@ class RateLimiter:
         while True:
             with self.lock:
                 now = time.time()
+                
+                # Calculate backoff delay if we've had recent failures
+                backoff_delay = self._calculate_backoff_delay(now)
+                if backoff_delay > 0:
+                    time.sleep(min(backoff_delay, 1.0))  # Cap sleep to 1 second per iteration
+                    continue
+                
                 # Add tokens based on elapsed time
                 elapsed = now - self.last_update
-                self.tokens = min(self.requests_per_minute, 
-                                self.tokens + elapsed * (self.requests_per_minute / 60.0))
+                self.tokens = min(self.burst_capacity, 
+                                self.tokens + elapsed * (self.base_rate / 60.0))
                 self.last_update = now
                 
                 if self.tokens >= 1.0:
                     self.tokens -= 1.0
+                    # Reset failure count on successful acquisition
+                    self.consecutive_failures = 0
                     return True
             
             # Check timeout
@@ -62,6 +78,36 @@ class RateLimiter:
             
             # Wait a bit before trying again
             time.sleep(0.1)
+    
+    def _calculate_backoff_delay(self, current_time: float) -> float:
+        """Calculate exponential backoff delay based on consecutive failures."""
+        if self.consecutive_failures == 0:
+            return 0.0
+        
+        # Exponential backoff: 2^failures seconds, capped at max_backoff
+        base_delay = min(2 ** self.consecutive_failures, self.max_backoff)
+        
+        # Only apply backoff if failure was recent (within last 5 minutes)
+        if current_time - self.last_failure_time > 300:  # 5 minutes
+            self.consecutive_failures = 0
+            return 0.0
+        
+        return base_delay
+    
+    def report_failure(self):
+        """Report a failure to trigger exponential backoff."""
+        with self.lock:
+            self.consecutive_failures += 1
+            self.last_failure_time = time.time()
+    
+    def report_success(self):
+        """Report a success to reset backoff."""
+        with self.lock:
+            self.consecutive_failures = 0
+
+
+# Legacy alias for backwards compatibility
+RateLimiter = AdaptiveRateLimiter
 
 class Inquiry(object):
     def __init__(self, questions: Union[str, list, dict, None] = None, 
@@ -81,7 +127,6 @@ class Inquiry(object):
         """
         # Initialize configuration
         self.config = config or Config()
-        self.config.validate()
         
         # Set up logging
         self.logger = setup_logging(self.config)
@@ -317,7 +362,8 @@ class Inquiry(object):
     
     def process_texts(self, texts: Union[List[str], pd.Series, Iterable[str]], 
                      metadata: Union[Dict[str, Any], List[Dict[str, Any]], None] = None,
-                     concurrent: bool = True) -> List[Dict[str, Any]]:
+                     concurrent: bool = True,
+                     stream: bool = False) -> Union[List[Dict[str, Any]], Iterable[Dict[str, Any]]]:
         """
         Process multiple texts with concurrent processing and rate limiting.
         
@@ -328,9 +374,10 @@ class Inquiry(object):
             texts: Collection of text strings to process (list, pandas Series, or iterable)
             metadata: Optional metadata to include in results (dict for all, or list of dicts)
             concurrent: Whether to use concurrent processing (default: True)
+            stream: Whether to return a streaming iterator for memory efficiency (default: False)
             
         Returns:
-            List[Dict[str, Any]]: List of extraction results
+            List[Dict[str, Any]] or Iterable[Dict[str, Any]]: List/iterator of extraction results
             
         Raises:
             ValueError: If no questions defined or invalid input
@@ -338,6 +385,10 @@ class Inquiry(object):
         """
         if not self.questions:
             raise ValueError("No questions defined")
+        
+        # For streaming, we keep texts as iterable if possible
+        if stream and not isinstance(texts, (list, pd.Series)):
+            return self._process_texts_streaming(texts, metadata, concurrent)
         
         # Convert pandas Series to list
         if isinstance(texts, pd.Series):
@@ -360,11 +411,98 @@ class Inquiry(object):
         else:
             raise ValueError("Metadata must be dict, list of dicts, or None")
         
+        # Return streaming results for memory efficiency
+        if stream:
+            return self._process_texts_streaming_batched(texts, metadata, concurrent)
+        
         # Use concurrent processing for multiple texts if enabled and beneficial
         if concurrent and len(texts) > 1:
             return self._process_multiple_texts_concurrent(texts, metadata)
         else:
             return self._process_multiple_texts_sequential(texts, metadata)
+    
+    def _process_texts_streaming(self, texts: Iterable[str], 
+                                metadata: Union[Dict[str, Any], List[Dict[str, Any]], None] = None,
+                                concurrent: bool = True) -> Iterable[Dict[str, Any]]:
+        """
+        Process texts from an iterable in a streaming fashion for memory efficiency.
+        
+        Args:
+            texts: Iterable of text strings to process
+            metadata: Optional metadata to include in results
+            concurrent: Whether to use concurrent processing
+            
+        Yields:
+            Dict[str, Any]: Individual extraction results
+        """
+        # Process in chunks to balance memory usage and throughput
+        chunk_size = min(self.config.batch_size, self.config.max_concurrent_requests * 4)
+        
+        def chunk_iterable(iterable, size):
+            """Chunk an iterable into batches of specified size."""
+            iterator = iter(iterable)
+            while True:
+                chunk = list(itertools.islice(iterator, size))
+                if not chunk:
+                    break
+                yield chunk
+        
+        import itertools
+        
+        # Handle metadata formatting for streaming
+        if isinstance(metadata, dict):
+            # Use the same metadata for all items
+            metadata_iter = itertools.repeat(metadata)
+        elif isinstance(metadata, list):
+            # Use provided metadata list
+            metadata_iter = iter(metadata)
+        else:
+            # No metadata
+            metadata_iter = itertools.repeat({})
+        
+        for text_chunk in chunk_iterable(texts, chunk_size):
+            # Get corresponding metadata chunk
+            metadata_chunk = [next(metadata_iter, {}) for _ in text_chunk]
+            
+            # Process chunk
+            if concurrent and len(text_chunk) > 1:
+                results = self._process_multiple_texts_concurrent(text_chunk, metadata_chunk)
+            else:
+                results = self._process_multiple_texts_sequential(text_chunk, metadata_chunk)
+            
+            # Yield individual results
+            for result in results:
+                yield result
+    
+    def _process_texts_streaming_batched(self, texts: List[str], 
+                                        metadata: List[Dict[str, Any]],
+                                        concurrent: bool = True) -> Iterable[Dict[str, Any]]:
+        """
+        Process a list of texts in streaming batches for memory efficiency.
+        
+        Args:
+            texts: List of text strings to process
+            metadata: List of metadata dictionaries
+            concurrent: Whether to use concurrent processing
+            
+        Yields:
+            Dict[str, Any]: Individual extraction results
+        """
+        batch_size = self.config.batch_size
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            batch_metadata = metadata[i:i + batch_size]
+            
+            # Process batch
+            if concurrent and len(batch_texts) > 1:
+                results = self._process_multiple_texts_concurrent(batch_texts, batch_metadata)
+            else:
+                results = self._process_multiple_texts_sequential(batch_texts, batch_metadata)
+            
+            # Yield individual results
+            for result in results:
+                yield result
     
     def _process_single_text(self, text: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
